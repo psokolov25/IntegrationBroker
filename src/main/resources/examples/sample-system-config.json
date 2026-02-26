@@ -1,0 +1,364 @@
+{
+  "revision": "local-1",
+  "inboundDlq": {
+    "enabled": true,
+    "maxAttempts": 10,
+    "sanitizeHeaders": true
+  },
+  "keycloakProxy": {
+    "enabled": false,
+    "critical": false,
+    "connectorId": "keycloakProxy",
+    "modes": [
+      "USER_ID_HEADER",
+      "BEARER_TOKEN"
+    ],
+    "userIdHeaderName": "x-user-id",
+    "tokenHeaderName": "Authorization",
+    "userByIdPathTemplate": "/authorization/users/{userName}",
+    "userByTokenPath": "/authentication/userInfo",
+    "stripTokensFromResponse": true,
+    "cacheTtlSeconds": 60,
+    "cacheMaxEntries": 5000,
+    "autoBranchIdFromUser": true,
+    "branchIdAttributeKeys": [
+      "branchId",
+      "branch_id",
+      "officeId"
+    ]
+  },
+  "messagingOutbox": {
+    "enabled": true,
+    "mode": "ALWAYS",
+    "maxAttempts": 10,
+    "baseDelaySec": 5,
+    "maxDelaySec": 600,
+    "batchSize": 50
+  },
+  "restOutbox": {
+    "enabled": true,
+    "mode": "ON_FAILURE",
+    "maxAttempts": 10,
+    "baseDelaySec": 5,
+    "maxDelaySec": 600,
+    "batchSize": 50,
+    "idempotencyHeaderName": "Idempotency-Key",
+    "treat4xxAsSuccess": "409"
+  },
+  "restConnectors": {
+    "keycloakProxy": {
+      "baseUrl": "http://keycloak-proxy:8080",
+      "auth": {
+        "type": "API_KEY_HEADER",
+        "headerName": "X-Service-Token",
+        "apiKey": "CHANGE_ME"
+      }
+    },
+    "crmGeneric": {
+      "baseUrl": "http://crm.example.local",
+      "auth": {
+        "type": "BEARER",
+        "bearerToken": "CHANGE_ME"
+      }
+    },
+    "visionlabsLuna": {
+      "baseUrl": "http://visionlabs-luna:8080",
+      "auth": {
+        "type": "API_KEY_HEADER",
+        "headerName": "X-API-Key",
+        "apiKey": "CHANGE_ME"
+      }
+    },
+    "visionlabsCars": {
+      "baseUrl": "http://visionlabs-cars:8080",
+      "auth": {
+        "type": "API_KEY_HEADER",
+        "headerName": "X-API-Key",
+        "apiKey": "CHANGE_ME"
+      }
+    },
+    "visionlabsEvents": {
+      "baseUrl": "http://visionlabs-luna:8080",
+      "auth": {
+        "type": "API_KEY_HEADER",
+        "headerName": "X-API-Key",
+        "apiKey": "CHANGE_ME"
+      }
+    },
+    "medicalGeneric": {
+      "baseUrl": "http://medical.example.local",
+      "auth": {
+        "type": "BEARER",
+        "bearerToken": "CHANGE_ME"
+      }
+    },
+    "appointmentGeneric": {
+      "baseUrl": "http://appointment.example.local",
+      "auth": {
+        "type": "BEARER",
+        "bearerToken": "CHANGE_ME"
+      }
+    },
+    "visitmanager": {
+      "baseUrl": "http://visitmanager:8080",
+      "auth": {
+        "type": "NONE"
+      }
+    },
+    "databus": {
+      "baseUrl": "http://databus:8080",
+      "auth": {
+        "type": "NONE"
+      }
+    }
+  },
+  "crm": {
+    "enabled": true,
+    "profile": "GENERIC",
+    "connectorId": "crmGeneric",
+    "settings": {
+      "note": "Параметры конкретной CRM задаются здесь (расширяемо)"
+    }
+  },
+  "medical": {
+    "enabled": true,
+    "profile": "FHIR_GENERIC",
+    "connectorId": "medicalGeneric",
+    "settings": {
+      "note": "Параметры конкретной МИС/EMR задаются здесь (расширяемо)"
+    }
+  },
+  "appointment": {
+    "enabled": true,
+    "profile": "GENERIC",
+    "connectorId": "appointmentGeneric",
+    "settings": {
+      "note": "Параметры конкретной системы записи задаются здесь (расширяемо)"
+    }
+  },
+  "visionLabsAnalytics": {
+    "enabled": false,
+    "inboundTypePrefix": "visionlabs.analytics.",
+    "http": {
+      "enabled": false,
+      "sharedSecretHeaderName": "X-VisionLabs-Token",
+      "sharedSecret": "CHANGE_ME"
+    },
+    "ws": {
+      "enabled": false,
+      "sharedSecretQueryParam": "token",
+      "sharedSecret": "CHANGE_ME"
+    },
+    "events": {
+      "enabled": false,
+      "connectorId": "visionlabsEvents",
+      "path": "/events",
+      "streamIds": [],
+      "pollIntervalSec": 10,
+      "listJsonPointer": "/events",
+      "idJsonPointer": "/id",
+      "streamIdParam": "stream_id",
+      "afterIdParam": "after_id",
+      "limitParam": "limit",
+      "limit": 100
+    },
+    "kafka": {
+      "enabled": false,
+      "topic": "luna.events",
+      "groupId": "integration-broker-visionlabs"
+    }
+  },
+  "flows": [
+    {
+      "id": "identify_customer_and_create_visit_demo",
+      "enabled": true,
+      "selector": {
+        "kind": "EVENT",
+        "type": "customer.identification.requested"
+      },
+      "metadata": {
+        "description": "Демо-flow: идентификация клиента + получение мед. процедур + создание визита в VisitManager (REST или VISIT_CREATE через DataBus)"
+      },
+      "groovy": "// Демо: событие, требующее идентификации клиента.\n// 1) Определяем отделение (branchId)\n// 2) Выполняем идентификацию (identity)\n// 3) (опционально) получаем медицинский контекст (medical)\n// 4) сопоставляем процедуры с услугами VisitManager\n// 5) создаём визит через REST или отправляем VISIT_CREATE в DataBus\n\ndef br = branch.resolve(input)\nmeta.branchId = br.branchId\ndef branchId = meta.branchId\nif (branchId == null) {\n  throw new RuntimeException('Не удалось определить отделение (branchId). strategy=' + br.strategy)\n}\n\ndef entryPointId = (input.headers?.get('x-entry-point-id') ?: '1')\n\n// Запрос идентификации ожидается прямо в payload (attributes/context/policy)\ndef idRes = identity.resolve(input.payload)\noutput.identityProfile = idRes.profile()\n\n// Пример: мед. ключ (СНИЛС) можно передать в payload.context.snils\ndef snils = input.payload?.get('context')?.get('snils')?.asText()\ndef keys = []\nif (snils != null && snils.trim().length() > 0) {\n  keys << [type:'snils', value: snils]\n}\n\ndef med = medical.buildRoutingContext([\n  keys: keys,\n  context: [branchId: branchId, clientId: idRes.profile().clientId()]\n], meta)\n\ndef procedureNames = []\nif (med.success() && med.result() != null && med.result().upcomingServices() != null) {\n  med.result().upcomingServices().each { s -> if (s != null && s.name() != null) procedureNames << s.name() }\n}\n\n// Сопоставляем процедуры с услугами VisitManager по имени.\ndef serviceIds = visit.matchServiceIdsByNames(branchId, procedureNames, true)\n\n// Параметры визита: только строки.\ndef params = [:]\nif (idRes.profile() != null) {\n  params.clientId = String.valueOf(idRes.profile().clientId())\n  params.fullName = String.valueOf(idRes.profile().fullName())\n  params.segment = String.valueOf(idRes.profile().segment())\n  params.priorityWeight = String.valueOf(idRes.profile().priorityWeight())\n}\nif (procedureNames != null && !procedureNames.isEmpty()) {\n  params.medicalProcedures = procedureNames.join(';')\n}\n\ndef visitArgs = [\n  branchId: branchId,\n  entryPointId: entryPointId,\n  serviceIds: serviceIds,\n  parameters: params,\n  printTicket: false\n]\n\n// Вариант 1: синхронный REST вызов (с fallback в outbox при ошибке)\ndef restRes = visit.createVisitRest(visitArgs, meta)\noutput.visitCreateRest = restRes\n\n// Вариант 2: асинхронно через DataBus (VisitManager слушает VISIT_CREATE)\ndef eventBody = [\n  branchId: branchId,\n  entryPointId: entryPointId,\n  serviceIds: serviceIds,\n  parameters: params,\n  printTicket: false,\n  segmentationRuleId: null\n]\noutput.dataBusOutboxId = bus.publishEvent('VISIT_CREATE', 'visitmanager', eventBody)\n\nreturn output\n"
+    },
+    {
+      "id": "crm_find_customer_demo",
+      "enabled": true,
+      "selector": {
+        "kind": "EVENT",
+        "type": "crm.findCustomer.requested"
+      },
+      "metadata": {
+        "description": "Демо-flow: поиск клиента в CRM через typed слой crm (GENERIC stub)"
+      },
+      "groovy": "// Ожидается, что payload соответствует формату FindCustomerRequest (см. examples/crm).\n// Важно: секреты CRM НЕ должны попадать в payload/headers и НЕ сохраняются в outbox/DLQ.\n\ndef res = crm.findCustomer(input.payload, meta)\n\noutput.success = res.success()\noutput.errorCode = res.errorCode()\noutput.errorMessage = res.errorMessage()\n\nif (res.success()) {\n  output.crmCustomerId = res.result().crmCustomerId()\n  output.fullName = res.result().fullName()\n  output.segmentAlias = res.result().segmentAlias()\n}\n\nreturn output\n"
+    },
+    {
+      "id": "medical_precheck_demo",
+      "enabled": true,
+      "selector": {
+        "kind": "EVENT",
+        "type": "medical.precheck.requested"
+      },
+      "metadata": {
+        "description": "Демо-flow: медицинский precheck (пациент + предстоящие услуги) через typed слой medical"
+      },
+      "groovy": "// Демо медицинского precheck.\n// Ожидается, что payload соответствует examples/medical/medical-precheck-request.json\n\n// buildRoutingContext агрегирует пациента и список предстоящих услуг.\ndef res = medical.buildRoutingContext(input.payload, meta)\n\noutput.success = res.success()\noutput.outcome = res.outcome()\noutput.errorCode = res.errorCode()\noutput.message = res.message()\n\nif (res.success()) {\n  output.patientId = res.result().patient().patientId()\n  output.fullName = res.result().patient().fullName()\n  output.upcomingServices = res.result().upcomingServices()\n  output.routingHints = res.result().routingHints()\n}\n\nreturn output\n"
+    },
+    {
+      "id": "identity_resolve_demo",
+      "enabled": true,
+      "selector": {
+        "kind": "EVENT",
+        "type": "identity.resolve.requested"
+      },
+      "metadata": {
+        "description": "Демо-flow: идентификация клиента по нескольким идентификаторам (phone+email) через слой identity"
+      },
+      "groovy": "// Демо идентификации клиента.\n// Важно: способ идентификации расширяемый и не ограничен фиксированным списком.\n// payload ожидается в виде JSON c полями phone/email.\n\ndef phone = input.payload?.get('phone')?.asText()\ndef email = input.payload?.get('email')?.asText()\n\ndef req = [\n  attributes: [\n    [type: 'phone', value: phone],\n    [type: 'email', value: email]\n  ],\n  context: [\n    branchId: meta.branchId,\n    channel: 'VISITMANAGER'\n  ],\n  policy: [\n    preferredTypes: ['phone', 'email'],\n    stopOnFirstClientId: true,\n    stopOnAnyMatch: false\n  ]\n]\n\ndef res = identity.resolve(req)\n\noutput.profile = res.profile()\noutput.segment = res.profile().segment()\noutput.priorityWeight = res.profile().priorityWeight()\noutput.clientId = res.profile().clientId()\noutput.evidences = res.evidences()\n\nreturn output\n"
+    },
+    {
+      "id": "demo_fail",
+      "enabled": true,
+      "selector": {
+        "kind": "EVENT",
+        "type": "demo.fail"
+      },
+      "metadata": {
+        "description": "Демо-flow: намеренно падает для проверки Inbound DLQ и replay"
+      },
+      "groovy": "throw new RuntimeException('Демо-ошибка: flow упал (Authorization=Bearer SECRET)')"
+    }
+  ],
+  "idempotency": {
+    "enabled": true,
+    "strategy": "AUTO",
+    "lockTtlSec": 60
+  },
+  "identity": {
+    "enabled": true,
+    "segmentAliases": {
+      "VIP_CLIENT": "VIP",
+      "VIPCLIENT": "VIP",
+      "PREMIUM_CLIENT": "PREMIUM"
+    },
+    "segmentPriority": [
+      "VIP",
+      "PREMIUM",
+      "CORPORATE",
+      "LOW_MOBILITY",
+      "PREBOOKED_MEDICAL",
+      "FAST_TRACK",
+      "MULTI_STAGE_EXAM",
+      "DEFAULT"
+    ],
+    "providers": {
+      "visionlabsFace": {
+        "enabled": false,
+        "priority": 250,
+        "connectorId": "visionlabsLuna",
+        "identifyPath": "/api/identify",
+        "responseIdPointer": "/faceId",
+        "imageFieldName": "imageBase64",
+        "timeoutMs": 3000,
+        "extraBody": {
+          "listId": "CHANGE_ME"
+        }
+      },
+      "visionlabsCars": {
+        "enabled": false,
+        "priority": 240,
+        "connectorId": "visionlabsCars",
+        "recognizePath": "/api/recognize",
+        "responsePlatePointer": "/plate",
+        "imageFieldName": "imageBase64",
+        "timeoutMs": 3000
+      },
+      "static": {
+        "enabled": true,
+        "priority": 100,
+        "mappings": [
+          {
+            "type": "phone",
+            "value": "+79990000001",
+            "profile": {
+              "clientId": "CLIENT-001",
+              "externalIds": {
+                "crm": "CRM-001"
+              },
+              "fullName": "Иванов Иван Иванович",
+              "segment": "VIP_CLIENT",
+              "priorityWeight": 100,
+              "serviceHints": [
+                "VIP_WINDOW"
+              ],
+              "branchAffinity": {
+                "preferredBranchId": "BR-001"
+              },
+              "attributes": {
+                "phone": "+79990000001"
+              }
+            }
+          },
+          {
+            "type": "email",
+            "value": "test@example.local",
+            "profile": {
+              "clientId": "CLIENT-001",
+              "externalIds": {
+                "crm": "CRM-001"
+              },
+              "fullName": "Иванов Иван Иванович",
+              "segment": "VIP",
+              "priorityWeight": 100,
+              "serviceHints": [
+                "VIP_WINDOW"
+              ],
+              "branchAffinity": {
+                "preferredBranchId": "BR-001"
+              },
+              "attributes": {
+                "email": "test@example.local"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "branchResolution": {
+    "enabled": true,
+    "branchIdHeaderName": "x-branch-id",
+    "branchPrefixHeaderName": "x-branch-prefix",
+    "prefixToBranchId": {
+      "TVR": "37493d1c-8282-4417-a729-dceac1f3e2b4"
+    },
+    "cameraNameRules": [
+      {
+        "name": "extract_prefix",
+        "regex": "^([A-Z]{2,5})_.*$",
+        "group": 1,
+        "mode": "BRANCH_PREFIX"
+      }
+    ]
+  },
+  "visitManager": {
+    "enabled": true,
+    "connectorId": "visitmanager",
+    "createVisitPathTemplate": "/entrypoint/branches/{branchId}/entry-points/{entryPointId}/visits/parameters?printTicket={printTicket}",
+    "servicesCatalogPathTemplate": "/entrypoint/branches/{branchId}/services/catalog",
+    "defaultEntryPointId": "1",
+    "entryPointIdHeaderName": "x-entry-point-id"
+  },
+  "dataBus": {
+    "enabled": true,
+    "connectorId": "databus",
+    "publishEventPathTemplate": "/databus/events/types/{type}",
+    "destinationHeaderName": "Service-Destination",
+    "sendToOtherBusHeaderName": "Send-To-OtherBus",
+    "sendDateHeaderName": "Send-Date",
+    "senderHeaderName": "Service-Sender",
+    "defaultSenderServiceName": "integration-broker",
+    "defaultSendToOtherBus": false
+  }
+}

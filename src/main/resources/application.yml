@@ -1,0 +1,119 @@
+micronaut:
+  application:
+    name: integration-broker
+  server:
+    port: 8088
+    max-request-size: 20MB
+  router:
+    static-resources:
+      swagger:
+        # Swagger UI (OpenAPI генерируется аннотационным процессором micronaut-openapi)
+        paths: classpath:META-INF/swagger
+        mapping: /swagger/**
+      swagger-ui:
+        paths: classpath:META-INF/swagger/views/swagger-ui
+        mapping: /swagger-ui/**
+
+endpoints:
+  health:
+    enabled: true
+    sensitive: false
+  info:
+    enabled: true
+    sensitive: false
+
+# Настройки Integration Broker.
+# В закрытых контурах рекомендуется:
+#  - держать базовую конфигурацию локально (classpath)
+#  - включать удалённую конфигурацию только при наличии доверенного SystemConfiguration
+integrationbroker:
+  local-config:
+    # Путь к локальной конфигурации flow (JSON). По умолчанию используем файл из examples.
+    # В реальном проекте следует вынести в отдельный ресурс (например, integrationbroker/system-config.json).
+    path: classpath:examples/sample-system-config.json
+
+  remote-config:
+    enabled: false
+    # Базовый URL SystemConfiguration. В реальном контуре указывайте FQDN/Service.
+    base-url: http://system-configuration:8080
+    # Путь по умолчанию согласно требованиям.
+    path: /configuration/config/system/integrationbroker
+    # Периодический refresh (сек)
+    refresh-interval-sec: 20
+
+  idempotency:
+    enabled: true
+    # AUTO = messageId -> correlationId -> payloadHash
+    strategy: AUTO
+    # Время удержания "замка" на обработку (сек).
+    # Если обработка повисла/упала без обновления статуса, через это время сообщение можно обработать повторно.
+    lock-ttl-sec: 60
+
+  groovy:
+    # Лимит кеша скриптов по количеству (эвристика). При превышении будет происходить очистка (простая стратегия).
+    cache-max-size: 200
+
+  dispatcher:
+    # Включает scheduled-диспетчеры outbox.
+    enabled: true
+    # Интервал запуска диспетчера (можно переопределять в окружении).
+    fixed-delay: 2s
+
+  startup-checks:
+    # Глобальный флаг стартовых проверок.
+    # В тестовом профиле выключается.
+    enabled: true
+
+    remote-config:
+      # Если включена удалённая конфигурация, обычно имеет смысл сделать её критичной.
+      enabled: ${integrationbroker.remote-config.enabled:false}
+      critical: true
+      fail-fast: true
+
+    rest-connectors:
+      # Проверка health endpoint для каждого restConnectors[*].baseUrl.
+      # В реальных проектах включается только при наличии согласованного health endpoint.
+      enabled: false
+      critical: false
+      fail-fast: false
+      health-path: /health
+      timeout-ms: 1500
+      expected-status: [200, 204]
+
+    messaging-providers:
+      # Проверка наличия и доступности провайдеров.
+      enabled: false
+      critical: true
+      fail-fast: true
+      required-provider-ids: []
+
+  visionlabs:
+    analytics:
+      kafka:
+        # Включение Kafka listener для callback type: luna-kafka.
+        # В runtime-config (sample-system-config.json) есть зеркальная секция visionLabsAnalytics.kafka,
+        # но транспортные настройки Kafka задаются здесь.
+        enabled: false
+        topic: luna.events
+        group-id: integration-broker-visionlabs
+
+kafka:
+  # Транспортная конфигурация Kafka (для luna-kafka inbound).
+  # В реальном проекте адреса и security-параметры задаются через окружение или секреты.
+  bootstrap:
+    servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+# Datasource для служебного хранения (outbox/DLQ/idempotency и др.)
+# По умолчанию — Postgres через переменные окружения.
+datasources:
+  default:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:integration_broker}
+    username: ${DB_USER:integration}
+    password: ${DB_PASSWORD:integration}
+    driverClassName: org.postgresql.Driver
+
+flyway:
+  datasources:
+    default:
+      enabled: true
+      # Миграции лежат в db/migration

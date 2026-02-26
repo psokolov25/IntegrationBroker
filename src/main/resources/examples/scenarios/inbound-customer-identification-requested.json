@@ -1,0 +1,32 @@
+{
+  "kind": "EVENT",
+  "type": "customer.identification.requested",
+  "payload": {
+    "attributes": [
+      {"type": "phone", "value": "+79990000001"},
+      {"type": "email", "value": "client@example.local"}
+    ],
+    "context": {
+      "channel": "VISIONLABS",
+      "snils": "112-233-445 95"
+    },
+    "policy": {
+      "preferredTypes": ["phone", "email"],
+      "stopOnFirstClientId": true,
+      "stopOnAnyMatch": false
+    }
+  },
+  "headers": {
+    "x-branch-prefix": "TVR",
+    "x-entry-point-id": "1"
+  },
+  "messageId": "demo-msg-100",
+  "correlationId": "demo-corr-100",
+  "branchId": null,
+  "userId": null,
+  "sourceMeta": {
+    "channel": "VISIONLABS",
+    "cameraName": "TVR_CAM_01",
+    "note": "Пример: branchId определяется по префиксу/имени камеры"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "attributes": [
+    {
+      "type": "vehicleImageBase64",
+      "value": "<BASE64_IMAGE>",
+      "attributes": {
+        "cameraId": "PARKING_GATE_1"
+      }
+    }
+  ],
+  "context": {
+    "channel": "PARKING",
+    "branchId": "BR-001"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "attributes": [
+    {
+      "type": "faceImageBase64",
+      "value": "<BASE64_IMAGE>",
+      "attributes": {
+        "listId": "CHANGE_ME"
+      }
+    }
+  ],
+  "context": {
+    "channel": "KIOSK",
+    "branchId": "BR-001"
+  },
+  "policy": {
+    "stopOnFirstClientId": false,
+    "stopOnAnyMatch": true
+  }
+}

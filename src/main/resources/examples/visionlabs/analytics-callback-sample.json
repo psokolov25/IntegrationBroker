@@ -1,0 +1,14 @@
+{
+  "event_type": "person.detected",
+  "event_id": "1234567890",
+  "stream_id": "stream-01",
+  "timestamp": "2026-02-25T18:00:00Z",
+  "object": {
+    "faceId": "vl-face-abc",
+    "confidence": 0.98
+  },
+  "meta": {
+    "camera": "CAM-01",
+    "zone": "ENTRANCE"
+  }
+}

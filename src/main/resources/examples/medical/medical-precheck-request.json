@@ -1,0 +1,14 @@
+{
+  "keys": [
+    {
+      "type": "snils",
+      "value": "112-233-445 95"
+    }
+  ],
+  "patientId": null,
+  "context": {
+    "branchId": "BR-001",
+    "channel": "VISITMANAGER",
+    "scenario": "medical.precheck.requested"
+  }
+}

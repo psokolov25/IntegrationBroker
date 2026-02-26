@@ -1,0 +1,19 @@
+{
+  "kind": "EVENT",
+  "type": "visit.created",
+  "payload": {
+    "ticketNumber": "A001",
+    "visitId": "V-10001"
+  },
+  "headers": {
+    "x-user-id": "operator",
+    "X-Request-Id": "req-42"
+  },
+  "messageId": "msg-42",
+  "correlationId": "corr-42",
+  "branchId": "BR-001",
+  "userId": null,
+  "sourceMeta": {
+    "channel": "REST"
+  }
+}

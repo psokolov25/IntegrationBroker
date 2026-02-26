@@ -1,0 +1,16 @@
+{
+  "kind": "EVENT",
+  "type": "identity.resolve.requested",
+  "messageId": "msg-ident-0001",
+  "correlationId": "corr-ident-0001",
+  "branchId": "BR-001",
+  "userId": "operator-1",
+  "headers": {
+    "source": "VisitManager",
+    "serviceCode": "CONSULT"
+  },
+  "payload": {
+    "phone": "+79990000001",
+    "email": "test@example.local"
+  }
+}

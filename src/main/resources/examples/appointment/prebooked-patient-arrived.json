@@ -1,0 +1,7 @@
+{
+  "clientId": "CLIENT-001",
+  "externalBookingId": "BOOK-778899",
+  "serviceCode": "CONSULT",
+  "arrivedAt": "2026-02-26T10:00:00Z",
+  "note": "Демо payload: клиент пришёл по предварительной записи. В реальном проекте может содержать patientId/phone/email/полис и т.д."
+}

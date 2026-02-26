@@ -1,0 +1,20 @@
+# Тестовый профиль: in-memory H2 в режиме совместимости с Postgres.
+datasources:
+  default:
+    url: jdbc:h2:mem:ib;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driverClassName: org.h2.Driver
+
+flyway:
+  datasources:
+    default:
+      enabled: true
+
+integrationbroker:
+  remote-config:
+    enabled: false
+  dispatcher:
+    enabled: false
+  startup-checks:
+    enabled: false

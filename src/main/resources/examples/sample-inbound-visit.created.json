@@ -1,0 +1,22 @@
+{
+  "kind": "EVENT",
+  "type": "visit.created",
+  "messageId": "msg-0001",
+  "correlationId": "corr-0001",
+  "branchId": "BR-001",
+  "userId": "operator-1",
+  "headers": {
+    "source": "VisitManager",
+    "serviceCode": "CONSULT"
+  },
+  "payload": {
+    "visitId": "V-10001",
+    "ticketNumber": "A001",
+    "createdAt": "2026-02-25T10:00:00Z",
+    "serviceCode": "CONSULT",
+    "customer": {
+      "phone": "+79990000000",
+      "fullName": "Иванов Иван"
+    }
+  }
+}

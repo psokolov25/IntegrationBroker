@@ -1,0 +1,23 @@
+{
+  "keys": [
+    {
+      "type": "phone",
+      "value": "+79990000001",
+      "attributes": {
+        "note": "Пример расширяемого ключа: можно добавить любые дополнительные атрибуты"
+      }
+    },
+    {
+      "type": "email",
+      "value": "test@example.local"
+    }
+  ],
+  "context": {
+    "branchId": "BR-001",
+    "channel": "VISITMANAGER"
+  },
+  "policy": {
+    "preferredTypes": ["phone", "email"],
+    "stopOnAnyMatch": true
+  }
+}

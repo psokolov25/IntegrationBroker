@@ -1,0 +1,29 @@
+{
+  "attributes": [
+    {
+      "type": "phone",
+      "value": "+79990000001"
+    },
+    {
+      "type": "email",
+      "value": "test@example.local"
+    },
+    {
+      "type": "customMethod",
+      "value": "CUSTOM-12345",
+      "attributes": {
+        "comment": "Пример расширяемого метода, добавляемого заказчиком через новый IdentityProvider"
+      }
+    }
+  ],
+  "context": {
+    "branchId": "BR-001",
+    "channel": "REST",
+    "serviceCode": "CONSULT"
+  },
+  "policy": {
+    "preferredTypes": ["phone", "email"],
+    "stopOnFirstClientId": true,
+    "stopOnAnyMatch": false
+  }
+}
