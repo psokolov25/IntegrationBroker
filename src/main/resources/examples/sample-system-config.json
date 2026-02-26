@@ -371,6 +371,11 @@
     "sendDateHeaderName": "Send-Date",
     "senderHeaderName": "Service-Sender",
     "defaultSenderServiceName": "integration-broker",
-    "defaultSendToOtherBus": false
+    "defaultSendToOtherBus": false,
+    "requestPathTemplate": "/databus/requests/{function}",
+    "responsePathTemplate": "/databus/responses",
+    "responseStatusHeaderName": "Response-Status",
+    "responseMessageHeaderName": "Response-Message",
+    "routeEventPathTemplate": "/databus/events/types/{type}/route"
   }
 }

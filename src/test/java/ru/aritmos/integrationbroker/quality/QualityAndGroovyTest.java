@@ -12,6 +12,7 @@ import ru.aritmos.integrationbroker.core.InboundProcessingService;
 import ru.aritmos.integrationbroker.core.MessagingOutboxService;
 import ru.aritmos.integrationbroker.core.RestOutboxService;
 import ru.aritmos.integrationbroker.core.FlowEngine;
+import ru.aritmos.integrationbroker.adapters.DataBusApi;
 import ru.aritmos.integrationbroker.identity.IdentityModels;
 import ru.aritmos.integrationbroker.identity.IdentityService;
 import ru.aritmos.integrationbroker.model.InboundEnvelope;
@@ -63,6 +64,9 @@ class QualityAndGroovyTest {
 
     @Inject
     IdentityService identityService;
+
+    @Inject
+    DataBusApi dataBusApi;
 
     @Test
     void shouldNotContainForbiddenPatternsInMainSources() throws Exception {
@@ -245,6 +249,132 @@ class QualityAndGroovyTest {
         Map<String, String> headers = restOutboxService.parseHeaders(rec.headersJson());
         assertEquals("***", headers.get("Authorization"), "TEST_EXPECTED: Authorization должен быть замаскирован при хранении REST outbox");
         assertEquals("t-2", headers.get("X-Trace-Id"));
+    }
+
+    @Test
+    void shouldEnqueueDataBusEventWithTraceHeaders() {
+        Map<String, Object> result = dataBusApi.publishEvent(
+                "default",
+                "visit.created",
+                "visitmanager",
+                Map.of("visitId", "V-100"),
+                false,
+                "src-100",
+                "corr-100",
+                "idem-100"
+        );
+
+        long outboxId = Long.parseLong(String.valueOf(result.get("outboxId")));
+        assertTrue(outboxId > 0, "TEST_EXPECTED: publishEvent должен вернуть outboxId > 0");
+
+        RestOutboxService.RestRecord rec = restOutboxService.get(outboxId);
+        assertNotNull(rec, "TEST_EXPECTED: запись rest outbox должна существовать");
+        assertTrue(rec.path().contains("/databus/events/types/visit.created"));
+
+        Map<String, String> headers = restOutboxService.parseHeaders(rec.headersJson());
+        assertEquals("corr-100", headers.get("X-Correlation-Id"));
+        assertEquals("src-100", headers.get("X-Request-Id"));
+    }
+
+    @Test
+    void shouldEnqueueDataBusRequestAndResponse() {
+        Map<String, Object> requestResult = dataBusApi.sendRequest(
+                "default",
+                "crm",
+                "resolveCustomer",
+                Map.of("customerId", "C-1"),
+                true,
+                "src-req-1",
+                "corr-req-1",
+                "idem-req-1"
+        );
+
+        long reqOutboxId = Long.parseLong(String.valueOf(requestResult.get("outboxId")));
+        assertTrue(reqOutboxId > 0, "TEST_EXPECTED: sendRequest должен вернуть outboxId > 0");
+        RestOutboxService.RestRecord reqRec = restOutboxService.get(reqOutboxId);
+        assertNotNull(reqRec);
+        assertTrue(reqRec.path().contains("/databus/requests/resolveCustomer"));
+
+        Map<String, Object> responseResult = dataBusApi.sendResponse(
+                "default",
+                "crm",
+                202,
+                "Accepted",
+                Map.of("status", "OK"),
+                false,
+                "src-resp-1",
+                "corr-resp-1",
+                "idem-resp-1"
+        );
+
+        long respOutboxId = Long.parseLong(String.valueOf(responseResult.get("outboxId")));
+        assertTrue(respOutboxId > 0, "TEST_EXPECTED: sendResponse должен вернуть outboxId > 0");
+        RestOutboxService.RestRecord respRec = restOutboxService.get(respOutboxId);
+        assertNotNull(respRec);
+        assertTrue(respRec.path().contains("/databus/responses"));
+
+        Map<String, String> headers = restOutboxService.parseHeaders(respRec.headersJson());
+        assertEquals("202", headers.get("Response-Status"));
+        assertEquals("Accepted", headers.get("Response-Message"));
+        assertEquals("corr-resp-1", headers.get("X-Correlation-Id"));
+    }
+
+    @Test
+    void shouldEnqueueDataBusRouteEvent() {
+        Map<String, Object> result = dataBusApi.publishEventRoute(
+                "default",
+                "crm",
+                "visit.created",
+                List.of("http://bus-a:8080", "http://bus-b:8080"),
+                Map.of("visitId", "V-777"),
+                "corr-route-1"
+        );
+
+        long outboxId = Long.parseLong(String.valueOf(result.get("outboxId")));
+        assertTrue(outboxId > 0, "TEST_EXPECTED: publishEventRoute должен вернуть outboxId > 0");
+
+        RestOutboxService.RestRecord rec = restOutboxService.get(outboxId);
+        assertNotNull(rec, "TEST_EXPECTED: route запись rest outbox должна существовать");
+        assertTrue(rec.path().contains("/databus/events/types/visit.created/route"));
+
+        Map<String, String> headers = restOutboxService.parseHeaders(rec.headersJson());
+        assertEquals("corr-route-1", headers.get("X-Correlation-Id"));
+        assertNull(headers.get("Send-To-OtherBus"), "TEST_EXPECTED: route endpoint не должен получать Send-To-OtherBus");
+        assertTrue(rec.bodyJson().contains("dataBusUrls"));
+    }
+
+    @Test
+    void shouldSupportSimplifiedDataBusApiSignatures() {
+        Map<String, Object> eventResult = dataBusApi.publishEvent(
+                "default",
+                "crm",
+                "identity.resolved",
+                Map.of("customerId", "C-22"),
+                "corr-simple-1"
+        );
+        long eventOutboxId = Long.parseLong(String.valueOf(eventResult.get("outboxId")));
+        assertTrue(eventOutboxId > 0, "TEST_EXPECTED: упрощенный publishEvent должен вернуть outboxId > 0");
+
+        Map<String, Object> requestResult = dataBusApi.sendRequest(
+                "default",
+                "crm",
+                "lookupCustomer",
+                Map.of("phone", "+79990000000"),
+                "corr-simple-2"
+        );
+        long requestOutboxId = Long.parseLong(String.valueOf(requestResult.get("outboxId")));
+        assertTrue(requestOutboxId > 0, "TEST_EXPECTED: упрощенный sendRequest должен вернуть outboxId > 0");
+
+        Map<String, Object> responseResult = dataBusApi.sendResponse(
+                "default",
+                "crm",
+                200,
+                "OK",
+                Map.of("result", "found"),
+                "corr-simple-3"
+        );
+        long responseOutboxId = Long.parseLong(String.valueOf(responseResult.get("outboxId")));
+        assertTrue(responseOutboxId > 0, "TEST_EXPECTED: упрощенный sendResponse должен вернуть outboxId > 0");
     }
 
     @Test
