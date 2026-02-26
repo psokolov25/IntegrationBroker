@@ -929,10 +929,15 @@ public record DataBusIntegrationConfig(
         boolean enabled,
         String connectorId,
         String publishEventPathTemplate,
+        String routeEventPathTemplate,
+        String requestPathTemplate,
+        String responsePathTemplate,
         String destinationHeaderName,
         String sendToOtherBusHeaderName,
         String sendDateHeaderName,
         String senderHeaderName,
+        String responseStatusHeaderName,
+        String responseMessageHeaderName,
         String defaultSenderServiceName,
         boolean defaultSendToOtherBus
 ) {
@@ -944,10 +949,15 @@ public record DataBusIntegrationConfig(
                 false,
                 "databus",
                 "/databus/events/types/{type}",
+                "/databus/events/types/{type}/route",
+                "/databus/requests/{function}",
+                "/databus/responses",
                 "Service-Destination",
                 "Send-To-OtherBus",
                 "Send-Date",
                 "Service-Sender",
+                "Response-Status",
+                "Response-Message",
                 "integration-broker",
                 false
         );
