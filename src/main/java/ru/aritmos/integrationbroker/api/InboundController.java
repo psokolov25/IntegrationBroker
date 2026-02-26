@@ -485,7 +485,7 @@ class AdminMessagingOutboxController {
             summary = "Поставить запись messaging outbox на повторную отправку",
             description = "Переводит запись в PENDING и назначает ближайшую попытку. При resetAttempts=true сбрасывает счётчик attempts."
     )
-    @ApiResponse(responseCode = "200", description = "Replay поставлен в очередь", content = @Content(schema = @Schema(implementation = OutboxReplayResponse.class)))
+    @ApiResponse(responseCode = "200", description = "Replay поставлен в очередь", content = @Content(schema = @Schema(implementation = AdminMessagingOutboxController.OutboxReplayResponse.class)))
     @ApiResponse(responseCode = "404", description = "Запись не найдена")
     public HttpResponse<OutboxReplayResponse> replay(
             @Parameter(description = "ID записи outbox") @PathVariable("id") long id,
@@ -565,7 +565,7 @@ class AdminRestOutboxController {
             summary = "Поставить запись REST outbox на повторную отправку",
             description = "Переводит запись в PENDING и назначает ближайшую попытку. При resetAttempts=true сбрасывает счётчик attempts."
     )
-    @ApiResponse(responseCode = "200", description = "Replay поставлен в очередь", content = @Content(schema = @Schema(implementation = OutboxReplayResponse.class)))
+    @ApiResponse(responseCode = "200", description = "Replay поставлен в очередь", content = @Content(schema = @Schema(implementation = AdminMessagingOutboxController.OutboxReplayResponse.class)))
     @ApiResponse(responseCode = "404", description = "Запись не найдена")
     public HttpResponse<AdminMessagingOutboxController.OutboxReplayResponse> replay(
             @Parameter(description = "ID записи REST outbox") @PathVariable("id") long id,

@@ -6,7 +6,9 @@
 -- 3) Базовый URL и политика авторизации берутся из runtime-конфига в момент отправки.
 
 ALTER TABLE ib_rest_outbox
-    ADD COLUMN IF NOT EXISTS connector_id VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS connector_id VARCHAR(100);
+
+ALTER TABLE ib_rest_outbox
     ADD COLUMN IF NOT EXISTS path VARCHAR(2000);
 
 -- URL остаётся для обратной совместимости и админ-диагностики.

@@ -40,7 +40,7 @@ public interface MessagingProvider {
      * @return результат health-check
      */
     default HealthStatus healthCheck() {
-        return HealthStatus.ok();
+        return HealthStatus.healthy();
     }
 
     /**
@@ -95,7 +95,7 @@ public interface MessagingProvider {
         /**
          * Провайдер доступен.
          */
-        public static HealthStatus ok() {
+        public static HealthStatus healthy() {
             return new HealthStatus(true, null);
         }
 

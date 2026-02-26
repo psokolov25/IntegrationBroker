@@ -166,7 +166,7 @@ public class RuntimeConfigStore {
         }
 
         try {
-            HttpRequest<?> req = HttpRequest.GET(remotePath);
+            io.micronaut.http.MutableHttpRequest<?> req = HttpRequest.GET(remotePath);
             if (lastEtag != null && !lastEtag.isBlank()) {
                 req = req.header(HttpHeaders.IF_NONE_MATCH, lastEtag);
             }
@@ -181,7 +181,10 @@ public class RuntimeConfigStore {
                 throw new IllegalStateException("remote-config вернул неожиданный HTTP статус: " + sc);
             }
 
-            resp.getHeaders().get(HttpHeaders.ETAG).ifPresent(etag -> lastEtag = etag);
+            String etag = resp.getHeaders().get(HttpHeaders.ETAG);
+            if (etag != null && !etag.isBlank()) {
+                lastEtag = etag;
+            }
 
             byte[] body = resp.body();
             if (body == null || body.length == 0) {
@@ -201,6 +204,16 @@ public class RuntimeConfigStore {
 
     private RuntimeConfig loadLocal() {
         Optional<InputStream> streamOpt = resourceResolver.getResourceAsStream(localPath);
+        if (streamOpt.isEmpty() && localPath != null && !localPath.startsWith("classpath:")) {
+            streamOpt = resourceResolver.getResourceAsStream("classpath:" + localPath);
+        }
+        if (streamOpt.isEmpty() && localPath != null && localPath.startsWith("classpath:")) {
+            String stripped = localPath.substring("classpath:".length());
+            if (stripped.startsWith("/")) {
+                stripped = stripped.substring(1);
+            }
+            streamOpt = resourceResolver.getResourceAsStream(stripped);
+        }
         if (streamOpt.isEmpty()) {
             throw new IllegalStateException("Не найден локальный конфиг Integration Broker по пути: " + localPath);
         }
@@ -216,7 +229,7 @@ public class RuntimeConfigStore {
 
     private void refreshRemote() {
         try {
-            HttpRequest<?> req = HttpRequest.GET(remotePath);
+            io.micronaut.http.MutableHttpRequest<?> req = HttpRequest.GET(remotePath);
             if (lastEtag != null && !lastEtag.isBlank()) {
                 req = req.header(HttpHeaders.IF_NONE_MATCH, lastEtag);
             }
@@ -227,7 +240,10 @@ public class RuntimeConfigStore {
                 return;
             }
 
-            resp.getHeaders().get(HttpHeaders.ETAG).ifPresent(etag -> lastEtag = etag);
+            String etag = resp.getHeaders().get(HttpHeaders.ETAG);
+            if (etag != null && !etag.isBlank()) {
+                lastEtag = etag;
+            }
 
             byte[] body = resp.body();
             if (body == null || body.length == 0) {

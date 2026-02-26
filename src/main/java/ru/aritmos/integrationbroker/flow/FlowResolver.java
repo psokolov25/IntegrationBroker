@@ -42,13 +42,15 @@ class ConfigBasedFlowResolver implements FlowResolver {
 
   @Override
   public Optional<FlowDefinition> resolve(InboundEnvelope envelope, RuntimeConfig config) {
-    if (config == null || config.flowsById().isEmpty()) {
+    if (config == null || config.flows() == null || envelope == null) {
       return Optional.empty();
     }
-    return config.flowsById().values().stream()
-        .filter(FlowDefinition::enabled)
-        .filter(f -> f.kind() == envelope.kind())
-        .filter(f -> f.type().equals(envelope.type()))
-        .findFirst();
+    return config.flows().stream()
+        .filter(f -> f != null && f.enabled())
+        .filter(f -> f.selector() != null)
+        .filter(f -> envelope.kind().name().equalsIgnoreCase(f.selector().kind()))
+        .filter(f -> envelope.type().equals(f.selector().type()))
+        .findFirst()
+        .map(f -> new FlowDefinition(f.id(), f.id(), envelope.kind(), envelope.type(), null, null, f.groovy(), true));
   }
 }
