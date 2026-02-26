@@ -102,7 +102,7 @@ public class VisitManagerClient {
         String path = buildCreateVisitPath(branchId, ep, printTicket, segmentationRuleId);
         String url = buildUrl(baseUrl, path);
 
-        Map<String, String> storedHeaders = SensitiveDataSanitizer.sanitizeHeaders(extraHeaders);
+        Map<String, String> storedHeaders = withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId);
         Map<String, String> directHeaders = mergeHeaders(storedHeaders, buildAuthHeaders(conn == null ? null : conn.auth()));
         directHeaders.putIfAbsent("Content-Type", "application/json");
 
@@ -135,14 +135,86 @@ public class VisitManagerClient {
             }
 
             // Ошибка — fallback в outbox (если включено)
-            long outboxId = enqueueFallback(eff, connectorId, path, url, storedHeaders, bodyJson, sourceMessageId, correlationId, idempotencyKey);
+            long outboxId = enqueueFallback("POST", eff, connectorId, path, url, storedHeaders, bodyJson, sourceMessageId, correlationId, idempotencyKey);
             if (outboxId > 0) {
                 return CallResult.queued(status, outboxId);
             }
             return CallResult.error("HTTP_" + status, "VisitManager вернул статус " + status);
 
         } catch (Exception ex) {
-            long outboxId = enqueueFallback(eff, connectorId, path, url, storedHeaders, bodyJson, sourceMessageId, correlationId, idempotencyKey);
+            long outboxId = enqueueFallback("POST", eff, connectorId, path, url, storedHeaders, bodyJson, sourceMessageId, correlationId, idempotencyKey);
+            if (outboxId > 0) {
+                return CallResult.queued(0, outboxId);
+            }
+            return CallResult.error("CALL_FAILED", "Ошибка вызова VisitManager: " + safeMsg(ex));
+        }
+    }
+
+
+    /**
+     * Обновить параметры визита через PUT /entrypoint/branches/{branchId}/visits/{visitId}.
+     */
+    public CallResult updateVisitParametersRest(String branchId,
+                                                String visitId,
+                                                Map<String, String> parameters,
+                                                Map<String, String> extraHeaders,
+                                                String sourceMessageId,
+                                                String correlationId,
+                                                String idempotencyKey) {
+        RuntimeConfigStore.RuntimeConfig eff = configStore.getEffective();
+        RuntimeConfigStore.VisitManagerIntegrationConfig vm = eff == null ? null : eff.visitManager();
+        if (vm == null || !vm.enabled()) {
+            return CallResult.error("DISABLED", "Интеграция с VisitManager отключена (visitManager.enabled=false)");
+        }
+
+        String connectorId = safe(vm.connectorId(), "visitmanager");
+        RuntimeConfigStore.RestConnectorConfig conn = (eff.restConnectors() == null) ? null : eff.restConnectors().get(connectorId);
+        String baseUrl = conn == null ? null : safe(conn.baseUrl(), null);
+        if (baseUrl == null) {
+            return CallResult.error("NO_CONNECTOR", "Не найден restConnectors." + connectorId + " или не задан baseUrl");
+        }
+
+        String path = "/entrypoint/branches/" + urlEncode(branchId) + "/visits/" + urlEncode(visitId);
+        String url = buildUrl(baseUrl, path);
+
+        Map<String, String> storedHeaders = withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId);
+        Map<String, String> directHeaders = mergeHeaders(storedHeaders, buildAuthHeaders(conn == null ? null : conn.auth()));
+        directHeaders.putIfAbsent("Content-Type", "application/json");
+
+        String bodyJson;
+        try {
+            bodyJson = objectMapper.writeValueAsString(parameters == null ? Map.of() : parameters);
+        } catch (Exception e) {
+            return CallResult.error("SERIALIZE_FAILED", "Не удалось сериализовать параметры визита: " + safeMsg(e));
+        }
+
+        try {
+            HttpRequest.Builder rb = HttpRequest.newBuilder().uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10))
+                    .PUT(HttpRequest.BodyPublishers.ofString(bodyJson));
+            for (Map.Entry<String, String> h : directHeaders.entrySet()) {
+                if (h.getKey() != null && h.getValue() != null) {
+                    rb.header(h.getKey(), h.getValue());
+                }
+            }
+            HttpResponse<String> resp = httpClient.send(rb.build(), HttpResponse.BodyHandlers.ofString());
+            int status = resp.statusCode();
+            if (status >= 200 && status < 300) {
+                JsonNode node;
+                try {
+                    node = resp.body() == null || resp.body().isBlank() ? null : objectMapper.readTree(resp.body());
+                } catch (Exception parseEx) {
+                    node = null;
+                }
+                return CallResult.direct(status, node);
+            }
+            long outboxId = enqueueFallback("PUT", eff, connectorId, path, url, storedHeaders, bodyJson, sourceMessageId, correlationId, idempotencyKey);
+            if (outboxId > 0) {
+                return CallResult.queued(status, outboxId);
+            }
+            return CallResult.error("HTTP_" + status, "VisitManager вернул статус " + status);
+        } catch (Exception ex) {
+            long outboxId = enqueueFallback("PUT", eff, connectorId, path, url, storedHeaders, bodyJson, sourceMessageId, correlationId, idempotencyKey);
             if (outboxId > 0) {
                 return CallResult.queued(0, outboxId);
             }
@@ -203,7 +275,95 @@ public class VisitManagerClient {
         }
     }
 
-    private long enqueueFallback(RuntimeConfigStore.RuntimeConfig eff,
+    /**
+     * Универсальный REST-вызов endpoint VisitManager через connector-конфигурацию.
+     *
+     * <p>Позволяет вызывать дополнительные endpoint'ы VisitManager до появления
+     * специализированного typed-метода в {@code VisitManagerApi}.
+     */
+    public CallResult callRestEndpoint(String method,
+                                       String path,
+                                       Object body,
+                                       Map<String, String> extraHeaders,
+                                       String sourceMessageId,
+                                       String correlationId,
+                                       String idempotencyKey) {
+
+        RuntimeConfigStore.RuntimeConfig eff = configStore.getEffective();
+        RuntimeConfigStore.VisitManagerIntegrationConfig vm = eff == null ? null : eff.visitManager();
+        if (vm == null || !vm.enabled()) {
+            return CallResult.error("DISABLED", "Интеграция с VisitManager отключена (visitManager.enabled=false)");
+        }
+
+        String connectorId = safe(vm.connectorId(), "visitmanager");
+        RuntimeConfigStore.RestConnectorConfig conn = (eff.restConnectors() == null) ? null : eff.restConnectors().get(connectorId);
+        String baseUrl = conn == null ? null : safe(conn.baseUrl(), null);
+        if (baseUrl == null) {
+            return CallResult.error("NO_CONNECTOR", "Не найден restConnectors." + connectorId + " или не задан baseUrl");
+        }
+
+        String effMethod = safe(method, "GET").toUpperCase();
+        String reqPath = safe(path, "/");
+        String url = buildUrl(baseUrl, reqPath);
+
+        Map<String, String> storedHeaders = withCorrelationHeaders(extraHeaders, correlationId, sourceMessageId);
+        Map<String, String> directHeaders = mergeHeaders(buildAuthHeaders(conn == null ? null : conn.auth()), storedHeaders);
+
+        String bodyJson = null;
+        if (!"GET".equals(effMethod) && !"DELETE".equals(effMethod) && body != null) {
+            try {
+                bodyJson = objectMapper.writeValueAsString(body);
+            } catch (Exception e) {
+                return CallResult.error("SERIALIZE_FAILED", "Не удалось сериализовать тело запроса");
+            }
+        }
+
+        try {
+            HttpRequest.Builder rb = HttpRequest.newBuilder().uri(URI.create(url)).timeout(Duration.ofSeconds(10));
+            if ("GET".equals(effMethod)) {
+                rb.GET();
+            } else if ("DELETE".equals(effMethod)) {
+                rb.DELETE();
+            } else {
+                rb.method(effMethod, HttpRequest.BodyPublishers.ofString(bodyJson == null ? "" : bodyJson));
+                rb.header("Content-Type", "application/json");
+            }
+
+            for (Map.Entry<String, String> h : directHeaders.entrySet()) {
+                if (h.getKey() != null && h.getValue() != null) {
+                    rb.header(h.getKey(), h.getValue());
+                }
+            }
+
+            HttpResponse<String> resp = httpClient.send(rb.build(), HttpResponse.BodyHandlers.ofString());
+            int status = resp.statusCode();
+            if (status >= 200 && status < 300) {
+                JsonNode node;
+                try {
+                    node = resp.body() == null || resp.body().isBlank() ? null : objectMapper.readTree(resp.body());
+                } catch (Exception parseEx) {
+                    node = null;
+                }
+                return CallResult.direct(status, node);
+            }
+
+            long outboxId = enqueueFallback(effMethod, eff, connectorId, reqPath, url, storedHeaders,
+                    bodyJson, sourceMessageId, correlationId, idempotencyKey);
+            if (outboxId > 0) {
+                return CallResult.queued(status, outboxId);
+            }
+            return CallResult.error("HTTP_" + status, "VisitManager вернул статус " + status);
+        } catch (Exception ex) {
+            long outboxId = enqueueFallback(effMethod, eff, connectorId, reqPath, url, storedHeaders,
+                    bodyJson, sourceMessageId, correlationId, idempotencyKey);
+            if (outboxId > 0) {
+                return CallResult.queued(0, outboxId);
+            }
+            return CallResult.error("CALL_FAILED", "Ошибка вызова VisitManager: " + safeMsg(ex));
+        }
+    }
+
+    private long enqueueFallback(String method, RuntimeConfigStore.RuntimeConfig eff,
                                  String connectorId,
                                  String path,
                                  String url,
@@ -223,7 +383,7 @@ public class VisitManagerClient {
         String idKey = (idempotencyKey != null && !idempotencyKey.isBlank()) ? idempotencyKey : sourceMessageId;
 
         return restOutboxService.enqueue(
-                "POST",
+                safe(method, "POST"),
                 url,
                 connectorId,
                 path,
@@ -307,6 +467,22 @@ public class VisitManagerClient {
         java.util.HashMap<String, String> out = new java.util.HashMap<>(a);
         if (b != null) {
             out.putAll(b);
+        }
+        return out;
+    }
+
+
+    private static Map<String, String> withCorrelationHeaders(Map<String, String> headers,
+                                                              String correlationId,
+                                                              String requestId) {
+        java.util.HashMap<String, String> out = headers == null ? new java.util.HashMap<>() : new java.util.HashMap<>(headers);
+        String corr = safe(correlationId, null);
+        String req = safe(requestId, null);
+        if (corr != null) {
+            out.putIfAbsent("X-Correlation-Id", corr);
+        }
+        if (req != null) {
+            out.putIfAbsent("X-Request-Id", req);
         }
         return out;
     }

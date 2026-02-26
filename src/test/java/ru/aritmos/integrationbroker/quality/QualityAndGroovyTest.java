@@ -442,14 +442,10 @@ class QualityAndGroovyTest {
                 true,
                 new RuntimeConfigStore.Selector("EVENT", "medical.test"),
                 Map.of("description", "Тест доступности alias medical в Groovy binding"),
-                "def res = medical.getPatient([keys:[[type:'snils', value:'112-233-445 95']]], meta)
-" +
-                        "output.success = res.success()
-" +
-                        "output.patientId = (res.result() == null ? null : res.result().patientId())
-" +
-                        "return output
-"
+                "def res = medical.getPatient([keys:[[type:'snils', value:'112-233-445 95']]], meta)\n" +
+                        "output.success = res.success()\n" +
+                        "output.patientId = (res.result() == null ? null : res.result().patientId())\n" +
+                        "return output\n"
         );
 
         InboundEnvelope env = new InboundEnvelope(

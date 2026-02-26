@@ -90,7 +90,10 @@ public class VisionLabsHttpCallbackController {
 
         Map<String, String> headers = toSanitizedHeaders(request.getHeaders());
         Map<String, Object> sourceMeta = new LinkedHashMap<>();
-        request.getRemoteAddress().ifPresent(addr -> sourceMeta.put("remote", addr.getHostString() + ":" + addr.getPort()));
+        java.net.InetSocketAddress addr = request.getRemoteAddress();
+        if (addr != null) {
+            sourceMeta.put("remote", addr.getHostString() + ":" + addr.getPort());
+        }
 
         try {
             InboundProcessingService.ProcessingResult res = ingressService.ingestJson(

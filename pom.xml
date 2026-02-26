@@ -61,6 +61,12 @@
       <scope>compile</scope>
     </dependency>
 
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
     <!-- JSON/Serde -->
     <dependency>
       <groupId>io.micronaut.serde</groupId>
@@ -70,15 +76,8 @@
 
     <!-- Jackson Databind для работы с JsonNode и сериализацией результатов (outbox/idempotency) -->
     <dependency>
-      <groupId>io.micronaut.jackson</groupId>
-      <artifactId>micronaut-jackson-databind</artifactId>
-      <scope>compile</scope>
-    </dependency>
-
-    <!-- Планировщик (Scheduled) для refresh конфигурации и будущих диспетчеров outbox/DLQ -->
-    <dependency>
       <groupId>io.micronaut</groupId>
-      <artifactId>micronaut-scheduling</artifactId>
+      <artifactId>micronaut-jackson-databind</artifactId>
       <scope>compile</scope>
     </dependency>
 
@@ -108,13 +107,6 @@
       <groupId>io.swagger.core.v3</groupId>
       <artifactId>swagger-annotations</artifactId>
       <scope>compile</scope>
-    </dependency>
-
-    <!-- Swagger UI (статика) -->
-    <dependency>
-      <groupId>io.micronaut.openapi</groupId>
-      <artifactId>micronaut-swagger-ui</artifactId>
-      <scope>runtime</scope>
     </dependency>
 
     <!-- Groovy runtime -->

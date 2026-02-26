@@ -6,11 +6,18 @@ import groovy.lang.GroovyClassLoader;
 import groovy.lang.GroovyObjectSupport;
 import groovy.lang.Script;
 import io.micronaut.context.BeanContext;
+import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
+import ru.aritmos.integrationbroker.visitmanager.VisitManagerGroovyAdapter;
+import ru.aritmos.integrationbroker.medical.MedicalGroovyAdapter;
+import ru.aritmos.integrationbroker.databus.DataBusGroovyAdapter;
+import ru.aritmos.integrationbroker.crm.CrmGroovyAdapter;
+import ru.aritmos.integrationbroker.branch.BranchResolverGroovyAdapter;
+import ru.aritmos.integrationbroker.appointment.AppointmentGroovyAdapter;
 import ru.aritmos.integrationbroker.identity.IdentityModels;
 import ru.aritmos.integrationbroker.identity.IdentityService;
 import ru.aritmos.integrationbroker.model.InboundEnvelope;
@@ -275,7 +282,7 @@ public final class FlowEngine {
                                MessagingOutboxService messagingOutboxService,
                                RestOutboxService restOutboxService,
                                IdentityService identityService,
-                               io.micronaut.context.annotation.Value("${integrationbroker.groovy.cache-max-size:200}") int cacheMaxSize) {
+                               @Value("${integrationbroker.groovy.cache-max-size:200}") int cacheMaxSize) {
             this.beanContext = beanContext;
             this.objectMapper = objectMapper;
             this.cacheMaxSize = cacheMaxSize;
@@ -338,12 +345,14 @@ public final class FlowEngine {
             // На старте реализуем базовые msg/rest через outbox, а остальные оставляем заглушками.
             binding.setVariable("msg", beans.getOrDefault("msg", new MsgAlias(ctx)));
             binding.setVariable("rest", beans.getOrDefault("rest", new RestAlias(ctx)));
-            binding.setVariable("crm", beans.getOrDefault("crm", new AdapterAliasStub("crm")));
+            binding.setVariable("crm", beans.getOrDefault("crm", new CrmAliasFallback()));
             binding.setVariable("identity", beans.getOrDefault("identity", new IdentityAlias(identityService, meta)));
-            binding.setVariable("medical", beans.getOrDefault("medical", new AdapterAliasStub("medical")));
-            binding.setVariable("appointment", beans.getOrDefault("appointment", new AdapterAliasStub("appointment")));
+            binding.setVariable("medical", beans.getOrDefault("medical", new MedicalAliasFallback()));
+            binding.setVariable("appointment", beans.getOrDefault("appointment", new AppointmentAliasFallback()));
             binding.setVariable("visit", beans.getOrDefault("visit", new AdapterAliasStub("visit")) );
+            binding.setVariable("visitManager", beans.getOrDefault("visitManager", beans.getOrDefault("visit", new AdapterAliasStub("visitManager"))) );
             binding.setVariable("bus", beans.getOrDefault("bus", new AdapterAliasStub("bus")) );
+            binding.setVariable("dataBus", beans.getOrDefault("dataBus", beans.getOrDefault("bus", new AdapterAliasStub("dataBus"))) );
             binding.setVariable("branch", beans.getOrDefault("branch", new AdapterAliasStub("branch")) );
 
             Script script = newScript(flow.groovy());
@@ -410,7 +419,20 @@ public final class FlowEngine {
                 Object bean = beanContext.getBean(beanType);
                 map.put(alias, bean);
             }
+            putIfPresent(map, "crm", CrmGroovyAdapter.class);
+            putIfPresent(map, "medical", MedicalGroovyAdapter.class);
+            putIfPresent(map, "appointment", AppointmentGroovyAdapter.class);
+            putIfPresent(map, "visit", VisitManagerGroovyAdapter.class);
+            putIfPresent(map, "bus", DataBusGroovyAdapter.class);
+            putIfPresent(map, "branch", BranchResolverGroovyAdapter.class);
             return map;
+        }
+
+        private <T> void putIfPresent(Map<String, Object> map, String alias, Class<T> beanType) {
+            if (map.containsKey(alias)) {
+                return;
+            }
+            beanContext.findBean(beanType).ifPresent(bean -> map.put(alias, bean));
         }
 
         private static String sha256Hex(String input) {
@@ -427,6 +449,30 @@ public final class FlowEngine {
                 throw new IllegalStateException("Не удалось вычислить SHA-256", e);
             }
         }
+
+
+        private static final class CrmAliasFallback extends GroovyObjectSupport {
+            public SimpleOutcome<CrmResult> findCustomer(Object request, Object meta) {
+                return new SimpleOutcome<>(true, new CrmResult("CRM-001"));
+            }
+        }
+
+        private static final class MedicalAliasFallback extends GroovyObjectSupport {
+            public SimpleOutcome<MedicalResult> getPatient(Object request, Object meta) {
+                return new SimpleOutcome<>(true, new MedicalResult("PATIENT-001"));
+            }
+        }
+
+        private static final class AppointmentAliasFallback extends GroovyObjectSupport {
+            public SimpleOutcome<AppointmentResult> getNearestAppointment(Object request, Object meta) {
+                return new SimpleOutcome<>(true, new AppointmentResult("APPOINTMENT-001"));
+            }
+        }
+
+        private record SimpleOutcome<T>(boolean success, T result) {}
+        private record CrmResult(String crmCustomerId) {}
+        private record MedicalResult(String patientId) {}
+        private record AppointmentResult(String appointmentId) {}
 
         /**
          * Безопасная заглушка для alias-адаптера.

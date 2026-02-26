@@ -228,6 +228,18 @@
         "description": "Демо-flow: намеренно падает для проверки Inbound DLQ и replay"
       },
       "groovy": "throw new RuntimeException('Демо-ошибка: flow упал (Authorization=Bearer SECRET)')"
+    },
+    {
+      "id": "visit_created_demo",
+      "enabled": true,
+      "selector": {
+        "kind": "EVENT",
+        "type": "visit.created"
+      },
+      "metadata": {
+        "description": "Flow для тестового сценария idempotency: формирует команду обработки визита"
+      },
+      "groovy": "output.command = \"VISIT_CREATED_HANDLED\"\noutput.visitType = input.type\nreturn output\n"
     }
   ],
   "idempotency": {
