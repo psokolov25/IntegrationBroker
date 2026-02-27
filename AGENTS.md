@@ -2,13 +2,13 @@
 
 ## 1) Source of truth (зафиксировано для разработки IB)
 
-Дата/время фиксации: **2026-02-26T07:46:56Z (UTC)**.
+Дата/время фиксации: **2026-02-27T00:00:00Z (UTC)**.
 
 ### VisitManager
 - Репозиторий: https://github.com/psokolov25/VisitManager
 - Локальный путь: `/workspace/VisitManager`
 - Ветка: `dev`
-- Ревизия: `bb59c6af367ad84b494b58693ecedff85e9b1e0d`
+- Ревизия: `45b98889cbe1be241704f0b5470babbc0d716f86`
 
 ### DataBus
 - Репозиторий: https://github.com/psokolov25/DataBus
@@ -127,27 +127,101 @@
 - Ретраи: экспоненциальный backoff для VM/DB; повторяем только безопасные операции или операции с idempotency key.
 - Необрабатываемые сообщения: DLQ/parking-lot + reprocess endpoint.
 
-### 4.3. Минимальные контуры wrapper API (для Groovy)
+### 4.3. Актуальные контуры wrapper API в IB (для Groovy/Java orchestration)
 ```java
 public interface VisitManagerApi {
-  Visit createVisit(String target, String branchId, String entryPointId, List<String> serviceIds, boolean printTicket, String correlationId);
-  Visit createVisitWithParameters(String target, String branchId, String entryPointId, VisitParameters params, String correlationId);
-  Visit updateVisitParams(String target, String branchId, String visitId, Map<String,String> attrs, String correlationId);
+  Map<String,Object> createVisit(String target,
+                                 String branchId,
+                                 String entryPointId,
+                                 List<String> serviceIds,
+                                 boolean printTicket,
+                                 String segmentationRuleId,
+                                 Map<String,String> headers,
+                                 String sourceMessageId,
+                                 String correlationId,
+                                 String idempotencyKey);
+
+  Map<String,Object> createVisitWithParameters(String target,
+                                               String branchId,
+                                               String entryPointId,
+                                               List<String> serviceIds,
+                                               Map<String,String> parameters,
+                                               boolean printTicket,
+                                               String segmentationRuleId,
+                                               Map<String,String> headers,
+                                               String sourceMessageId,
+                                               String correlationId,
+                                               String idempotencyKey);
+
+  Map<String,Object> updateVisitParameters(String target,
+                                           String branchId,
+                                           String visitId,
+                                           Map<String,String> parameters,
+                                           Map<String,String> headers,
+                                           String sourceMessageId,
+                                           String correlationId,
+                                           String idempotencyKey);
 }
 
 public interface DataBusApi {
-  Map<String,String> publishEvent(String target, String destination, String type, Object payload, String correlationId);
-  // прототипы на будущее
-  Map<String,String> sendRequest(String target, String destination, String function, Map<String,Object> params, String correlationId);
-  Map<String,String> sendResponse(String target, String destination, int status, String message, Object response, String correlationId);
+  Map<String,Object> publishEvent(String target,
+                                  String type,
+                                  String destination,
+                                  Object payload,
+                                  Boolean sendToOtherBus,
+                                  String sourceMessageId,
+                                  String correlationId,
+                                  String idempotencyKey);
+
+  Map<String,Object> publishEventRoute(String target,
+                                       String destination,
+                                       String type,
+                                       List<String> dataBusUrls,
+                                       Object payload,
+                                       String sourceMessageId,
+                                       String correlationId,
+                                       String idempotencyKey);
+
+  Map<String,Object> sendRequest(String target,
+                                 String destination,
+                                 String function,
+                                 Map<String,Object> params,
+                                 Boolean sendToOtherBus,
+                                 String sourceMessageId,
+                                 String correlationId,
+                                 String idempotencyKey);
+
+  Map<String,Object> sendResponse(String target,
+                                  String destination,
+                                  Integer status,
+                                  String message,
+                                  Object response,
+                                  Boolean sendToOtherBus,
+                                  String sourceMessageId,
+                                  String correlationId,
+                                  String idempotencyKey);
 }
 ```
 
 Groovy usage (пример):
 ```groovy
-def visit = visitManager.createVisit(targetId, branchId, entryPointId, services, true, ctx.correlationId)
-dataBus.publishEvent(targetId, "crm,display", "visit.created", [visitId: visit.id, ticket: visit.ticket], ctx.correlationId)
-return [status: "OK", visitId: visit.id]
+def visitRes = visitManager.createVisit(
+  targetId,
+  branchId,
+  entryPointId,
+  services,
+  true,
+  null,
+  [:],
+  ctx.sourceMessageId,
+  ctx.correlationId,
+  ctx.idempotencyKey
+)
+
+dataBus.publishEvent(targetId, "crm,display", "visit.created",
+  [visitId: visitRes.body?.id, ticket: visitRes.body?.ticket],
+  ctx.correlationId)
+return [status: "OK", visitId: visitRes.body?.id]
 ```
 
 ---
