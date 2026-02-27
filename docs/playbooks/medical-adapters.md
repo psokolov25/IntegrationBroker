@@ -70,6 +70,9 @@
 
 Алиас `medical` доступен в Groovy, если в проекте подключён бин `MedicalGroovyAdapter`.
 
+Для коротких flow можно использовать helper `medical.getPatientByKeys(keys, meta)` без ручной сборки полного request.
+Также доступен helper `medical.getUpcomingServicesByPatient(patientId, meta)` для запроса по известному patientId.
+
 Пример precheck:
 
 ```groovy

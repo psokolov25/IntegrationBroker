@@ -78,6 +78,9 @@
 
 В Groovy доступен alias `crm`.
 
+В Groovy также доступен helper `crm.findCustomerByKeys(keys, meta)`, если нужен быстрый вызов без сборки полного request.
+Дополнительно можно использовать `crm.createServiceCaseSimple(title, customerCrmId, channel, meta)` для коротких case-flow.
+
 Пример:
 
 ```groovy

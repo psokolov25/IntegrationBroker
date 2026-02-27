@@ -52,17 +52,42 @@ public interface DataBusApi {
                                                    List<String> dataBusUrls,
                                                    Object payload,
                                                    String correlationId) {
-        return publishEventRoute(target, destination, type, dataBusUrls, payload, null, correlationId, null);
+        return publishEventRoute(target, destination, type, dataBusUrls, payload, null, null, correlationId, null);
+    }
+
+    /**
+     * Публикация route-события с явным управлением флагом sendToOtherBus.
+     */
+    default Map<String, Object> publishEventRoute(String target,
+                                                   String destination,
+                                                   String type,
+                                                   List<String> dataBusUrls,
+                                                   Object payload,
+                                                   Boolean sendToOtherBus,
+                                                   String correlationId) {
+        return publishEventRoute(target, destination, type, dataBusUrls, payload, sendToOtherBus, null, correlationId, null);
     }
 
     /**
      * Публикация события в DataBus с явной маршрутизацией на список внешних шин.
      */
+    default Map<String, Object> publishEventRoute(String target,
+                                          String destination,
+                                          String type,
+                                          List<String> dataBusUrls,
+                                          Object payload,
+                                          String sourceMessageId,
+                                          String correlationId,
+                                          String idempotencyKey) {
+        return publishEventRoute(target, destination, type, dataBusUrls, payload, null, sourceMessageId, correlationId, idempotencyKey);
+    }
+
     Map<String, Object> publishEventRoute(String target,
                                           String destination,
                                           String type,
                                           List<String> dataBusUrls,
                                           Object payload,
+                                          Boolean sendToOtherBus,
                                           String sourceMessageId,
                                           String correlationId,
                                           String idempotencyKey);

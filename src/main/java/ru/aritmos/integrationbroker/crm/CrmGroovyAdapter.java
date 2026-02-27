@@ -58,6 +58,15 @@ public class CrmGroovyAdapter extends GroovyObjectSupport {
     }
 
     /**
+     * Упрощённый helper: поиск клиента по набору keys без сборки полного request вручную.
+     */
+    public CrmModels.CrmOutcome<CrmModels.CustomerCard> findCustomerByKeys(Object keys, Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", keys);
+        return findCustomer(req, meta);
+    }
+
+    /**
      * Upsert клиента.
      */
     public CrmModels.CrmOutcome<CrmModels.CustomerCard> upsertCustomer(Object request) {
@@ -107,6 +116,20 @@ public class CrmGroovyAdapter extends GroovyObjectSupport {
         CrmModels.AppendNoteRequest req = convert(request, CrmModels.AppendNoteRequest.class,
                 "Некорректный запрос appendNote: ожидается Map/JSON с полями entityType/entityId/text");
         return crmService.appendNote(req, metaMap(meta));
+    }
+
+    /**
+     * Упрощённый helper: создать сервисное обращение по базовым полям.
+     */
+    public CrmModels.CrmOutcome<CrmModels.ServiceCaseRef> createServiceCaseSimple(String title,
+                                                                                   String customerCrmId,
+                                                                                   String channel,
+                                                                                   Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("title", title);
+        req.put("customerCrmId", customerCrmId);
+        req.put("channel", channel);
+        return createServiceCase(req, meta);
     }
 
     /**

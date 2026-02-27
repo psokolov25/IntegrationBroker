@@ -189,6 +189,19 @@ class DataBusApiImplTest {
     }
 
     @Test
+    void publishEventRoute_shouldPropagateSendToOtherBusFlag() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishEventRoute("target-1", "crm", "visit.created", List.of("http://bus-2"), Map.of("visitId", "V-2"), true, "src-2", "corr-2", "idem-2");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals(true, envelope.get("sendToOtherBus"));
+        assertEquals(true, stub.lastSendToOtherBus);
+    }
+
+    @Test
     void sendRequest_shouldFallbackToUnknownFunction() {
         StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
         DataBusApiImpl api = new DataBusApiImpl(stub, null);
@@ -384,6 +397,7 @@ class DataBusApiImplTest {
         private String lastFunction;
         private Object lastBody;
         private List<String> lastDataBusUrls;
+        private Boolean lastSendToOtherBus;
 
         StubDataBusGroovyAdapter() {
             super(null, null);
@@ -399,12 +413,13 @@ class DataBusApiImplTest {
         }
 
         @Override
-        public long publishEventRoute(String type, String destination, List<String> dataBusUrls, Object body,
+        public long publishEventRoute(String type, String destination, Boolean sendToOtherBus, List<String> dataBusUrls, Object body,
                                       String sourceMessageId, String correlationId, String idempotencyKey) {
             this.lastType = type;
             this.lastDestination = destination;
             this.lastBody = body;
             this.lastDataBusUrls = dataBusUrls;
+            this.lastSendToOtherBus = sendToOtherBus;
             return 111L;
         }
 
