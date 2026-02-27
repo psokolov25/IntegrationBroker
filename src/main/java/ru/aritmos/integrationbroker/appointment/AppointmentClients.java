@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Singleton;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -118,7 +119,7 @@ public class AppointmentClients {
 
         @Override
         public AppointmentModels.AppointmentOutcome<List<AppointmentModels.Slot>> getAvailableSlots(AppointmentModels.GetAvailableSlotsRequest request, Map<String, Object> meta) {
-            Instant now = Instant.now();
+            Instant now = deterministicBaseTime(request == null ? null : request.serviceCode());
             String svc = request == null ? null : request.serviceCode();
             List<AppointmentModels.Slot> slots = List.of(
                     new AppointmentModels.Slot("SLOT-001", now.plusSeconds(3600), now.plusSeconds(5400), svc == null ? "CONSULT" : svc, Map.of("source", "generic")),
@@ -132,16 +133,13 @@ public class AppointmentClients {
             String key = firstKey(request == null ? null : request.keys());
             AppointmentModels.Appointment a = new AppointmentModels.Appointment(
                     "APPT-BOOK-" + safeHash(key),
-                    Instant.now().plusSeconds(3600),
-                    Instant.now().plusSeconds(5400),
+                    deterministicBaseTime(key).plusSeconds(3600),
+                    deterministicBaseTime(key).plusSeconds(5400),
                     request == null || request.serviceCode() == null ? "CONSULT" : request.serviceCode(),
                     "Врач (демо)",
                     "301",
                     "CONFIRMED",
-                    Map.of(
-                            "slotId", request == null ? null : request.slotId(),
-                            "source", "generic"
-                    )
+                    metadata("source", "generic", "slotId", request == null ? null : request.slotId())
             );
             return AppointmentModels.AppointmentOutcome.ok(a);
         }
@@ -176,7 +174,7 @@ public class AppointmentClients {
         }
 
         private static AppointmentModels.Appointment demoAppointment(String key) {
-            Instant now = Instant.now();
+            Instant now = deterministicBaseTime(key);
             String apptId = "APPT-" + safeHash(key);
             return new AppointmentModels.Appointment(
                     apptId,
@@ -186,11 +184,25 @@ public class AppointmentClients {
                     "Врач (демо)",
                     "301",
                     "CONFIRMED",
-                    Map.of(
-                            "clientKey", key,
-                            "source", "generic"
-                    )
+                    metadata("source", "generic", "clientKey", key)
             );
+        }
+
+        private static Instant deterministicBaseTime(String key) {
+            int seed = Math.abs(safeHash(key).hashCode());
+            long offsetSeconds = seed % 86_400L;
+            return Instant.parse("2026-01-01T09:00:00Z").plusSeconds(offsetSeconds);
+        }
+
+        private static Map<String, Object> metadata(String key1, String value1, String key2, String value2) {
+            Map<String, Object> meta = new LinkedHashMap<>();
+            if (key1 != null && value1 != null && !key1.isBlank() && !value1.isBlank()) {
+                meta.put(key1, value1);
+            }
+            if (key2 != null && value2 != null && !key2.isBlank() && !value2.isBlank()) {
+                meta.put(key2, value2);
+            }
+            return meta;
         }
 
         private static String firstKey(List<AppointmentModels.BookingKey> keys) {

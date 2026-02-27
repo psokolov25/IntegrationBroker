@@ -147,7 +147,7 @@ public final class CrmClients {
             if (request == null || isBlank(request.title())) {
                 return CrmModels.CrmOutcome.fail("BAD_REQUEST", "Не задан title для лида", Map.of());
             }
-            CrmModels.LeadRef ref = new CrmModels.LeadRef("LEAD-001", "NEW", Instant.now(), request.attributes() == null ? Map.of() : request.attributes());
+            CrmModels.LeadRef ref = new CrmModels.LeadRef("LEAD-001", "NEW", deterministicInstant(request.customerCrmId()), request.attributes() == null ? Map.of() : request.attributes());
             return CrmModels.CrmOutcome.ok(ref, Map.of("mode", "stub"));
         }
 
@@ -156,7 +156,7 @@ public final class CrmClients {
             if (request == null || isBlank(request.title())) {
                 return CrmModels.CrmOutcome.fail("BAD_REQUEST", "Не задан title для задачи", Map.of());
             }
-            CrmModels.TaskRef ref = new CrmModels.TaskRef("TASK-001", "NEW", Instant.now(), request.attributes() == null ? Map.of() : request.attributes());
+            CrmModels.TaskRef ref = new CrmModels.TaskRef("TASK-001", "NEW", deterministicInstant(request.title()), request.attributes() == null ? Map.of() : request.attributes());
             return CrmModels.CrmOutcome.ok(ref, Map.of("mode", "stub"));
         }
 
@@ -173,7 +173,7 @@ public final class CrmClients {
             if (request == null || isBlank(request.title())) {
                 return CrmModels.CrmOutcome.fail("BAD_REQUEST", "Не задан title для обращения", Map.of());
             }
-            CrmModels.ServiceCaseRef ref = new CrmModels.ServiceCaseRef("CASE-001", "OPEN", Instant.now(), request.attributes() == null ? Map.of() : request.attributes());
+            CrmModels.ServiceCaseRef ref = new CrmModels.ServiceCaseRef("CASE-001", "OPEN", deterministicInstant(request.title()), request.attributes() == null ? Map.of() : request.attributes());
             return CrmModels.CrmOutcome.ok(ref, Map.of("mode", "stub"));
         }
 
@@ -220,6 +220,16 @@ public final class CrmClients {
                     )),
                     Map.of("mode", "stub")
             );
+        }
+
+        private static Instant deterministicInstant(String seed) {
+            String s = safe(seed);
+            int h = 0;
+            for (char c : s.toCharArray()) {
+                h = (h * 31) + c;
+            }
+            long offset = Math.abs((long) h) % 86_400L;
+            return Instant.parse("2026-01-01T08:00:00Z").plusSeconds(offset);
         }
 
         private static CrmModels.CustomerCard demoCustomer() {

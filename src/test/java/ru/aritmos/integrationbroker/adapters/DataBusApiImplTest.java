@@ -32,6 +32,7 @@ class DataBusApiImplTest {
         assertEquals("visit.created", envelope.get("type"));
         assertEquals("integration-broker", envelope.get("source"));
         assertEquals("corr-1", envelope.get("correlationId"));
+        assertEquals("src-1", envelope.get("requestId"));
         assertEquals(payload, envelope.get("payload"));
         assertEquals("src-1", envelope.get("sourceMessageId"));
         assertEquals("idem-1", envelope.get("idempotencyKey"));
@@ -40,6 +41,11 @@ class DataBusApiImplTest {
         assertNull(envelope.get("response"));
         assertNull(envelope.get("status"));
         assertNull(envelope.get("message"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ibMeta = (Map<String, Object>) envelope.get("_ib");
+        assertEquals("corr-1", ibMeta.get("correlationId"));
+        assertEquals("src-1", ibMeta.get("requestId"));
+        assertEquals("idem-1", ibMeta.get("idempotencyKey"));
 
         assertEquals("visit.created", stub.lastType);
         assertEquals("crm", stub.lastDestination);
@@ -89,6 +95,28 @@ class DataBusApiImplTest {
         Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
         assertEquals("corr-701", envelope.get("idempotencyKey"));
         assertEquals("corr-701", envelope.get("correlationId"));
+        assertEquals("corr-701", envelope.get("requestId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ibMeta = (Map<String, Object>) envelope.get("_ib");
+        assertEquals("corr-701", ibMeta.get("correlationId"));
+        assertEquals("corr-701", ibMeta.get("requestId"));
+    }
+
+    @Test
+    void publishEvent_shouldNotFailWhenCorrelationRequestAndIdempotencyAbsent() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishEvent("target-1", "visit.created", "crm", Map.of("visitId", "V-1"), false, " ", " ", " ");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertNull(envelope.get("correlationId"));
+        assertNull(envelope.get("requestId"));
+        assertNull(envelope.get("idempotencyKey"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ibMeta = (Map<String, Object>) envelope.get("_ib");
+        assertTrue(ibMeta.isEmpty());
     }
 
     @Test
@@ -118,10 +146,34 @@ class DataBusApiImplTest {
         Map<String, Object> sent = (Map<String, Object>) stub.lastBody;
         assertEquals("visit.created", sent.get("type"));
         assertEquals("events.route", sent.get("operation"));
+        assertEquals("src-2", sent.get("requestId"));
         assertEquals(List.of("http://bus-2"), sent.get("routeDataBusUrls"));
         assertEquals("corr-2", sent.get("correlationId"));
+        assertTrue(sent.containsKey("_ib"));
     }
 
+
+    @Test
+    void publishEventRoute_shouldNormalizeAndDeduplicateUrls() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishEventRoute(
+                "target-1",
+                "crm",
+                "visit.created",
+                java.util.Arrays.asList(" http://bus-1 ", "http://bus-1", " ", null, "http://bus-2"),
+                Map.of("visitId", "V-2"),
+                "src-2",
+                "corr-2",
+                "idem-2"
+        );
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals(List.of("http://bus-1", "http://bus-2"), envelope.get("routeDataBusUrls"));
+        assertEquals(List.of("http://bus-1", "http://bus-2"), stub.lastDataBusUrls);
+    }
 
     @Test
     void publishEventRoute_shouldFallbackToUnknownType() {
@@ -178,6 +230,11 @@ class DataBusApiImplTest {
         assertEquals("request.resolveVisit", sentParams.get("type"));
         assertNull(envelope.get("status"));
         assertNull(envelope.get("message"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ibMeta = (Map<String, Object>) envelope.get("_ib");
+        assertEquals("corr-2", ibMeta.get("correlationId"));
+        assertEquals("src-2", ibMeta.get("requestId"));
+        assertEquals("idem-2", ibMeta.get("idempotencyKey"));
     }
 
     @Test
@@ -248,6 +305,33 @@ class DataBusApiImplTest {
         assertEquals("integration-broker", envelope.get("source"));
     }
 
+
+    @Test
+    void sendRequest_shouldNormalizeDestinationBeforeAdapterCall() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.sendRequest("target-1", "  visitmanager  ", "resolveVisit", Map.of(), true, "src-3", "corr-3", "idem-3");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals("visitmanager", envelope.get("destination"));
+        assertEquals("visitmanager", stub.lastDestination);
+    }
+
+    @Test
+    void sendResponse_shouldNormalizeDestinationBeforeAdapterCall() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.sendResponse("target-1", "  crm  ", 200, "ok", Map.of("accepted", true), false, "src-3", "corr-3", "idem-3");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals("crm", envelope.get("destination"));
+        assertEquals("crm", stub.lastDestination);
+    }
+
     @Test
     void sendResponse_shouldFallbackCorrelationIdFromSourceMessageId() {
         StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
@@ -299,6 +383,7 @@ class DataBusApiImplTest {
         private String lastDestination;
         private String lastFunction;
         private Object lastBody;
+        private List<String> lastDataBusUrls;
 
         StubDataBusGroovyAdapter() {
             super(null, null);
@@ -319,6 +404,7 @@ class DataBusApiImplTest {
             this.lastType = type;
             this.lastDestination = destination;
             this.lastBody = body;
+            this.lastDataBusUrls = dataBusUrls;
             return 111L;
         }
 
@@ -326,6 +412,7 @@ class DataBusApiImplTest {
         public long sendRequest(String function, String destination, Boolean sendToOtherBus, Map<String, Object> params,
                                 String sourceMessageId, String correlationId, String idempotencyKey) {
             this.lastFunction = function;
+            this.lastDestination = destination;
             this.lastBody = params;
             return 202L;
         }
@@ -333,6 +420,7 @@ class DataBusApiImplTest {
         @Override
         public long sendResponse(String destination, Boolean sendToOtherBus, Integer status, String message,
                                  Object response, String sourceMessageId, String correlationId, String idempotencyKey) {
+            this.lastDestination = destination;
             this.lastBody = response;
             return 303L;
         }

@@ -56,12 +56,16 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(branchId)) {
             return invalidArgument("branchId");
         }
+        List<String> normalizedServiceIds = normalizeServiceIds(serviceIds);
+        if (normalizedServiceIds.isEmpty()) {
+            return invalidArgument("serviceIds");
+        }
         // target будет использоваться при маршрутизации multi-target (S6).
         VisitManagerClient.CallResult r = client.createVisitWithParametersRest(
                 branchId,
                 entryPointId,
-                serviceIds,
-                parameters,
+                normalizedServiceIds,
+                normalizeParameters(parameters),
                 printTicket,
                 segmentationRuleId,
                 normalizeHeaders(headers),
@@ -90,7 +94,7 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         VisitManagerClient.CallResult r = client.updateVisitParametersRest(
                 branchId,
                 visitId,
-                parameters,
+                normalizeParameters(parameters),
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -377,17 +381,36 @@ public class VisitManagerApiImpl implements VisitManagerApi {
                                                                  String sourceMessageId,
                                                                  String correlationId,
                                                                  String idempotencyKey) {
-        return createVisitOnPrinterWithParameters(target,
-                branchId,
-                printerId,
-                serviceIds,
-                Map.of(),
-                printTicket,
-                segmentationRuleId,
+        if (isBlank(branchId)) {
+            return invalidArgument("branchId");
+        }
+        if (isBlank(printerId)) {
+            return invalidArgument("printerId");
+        }
+        List<String> normalizedServiceIds = normalizeServiceIds(serviceIds);
+        if (normalizedServiceIds.isEmpty()) {
+            return invalidArgument("serviceIds");
+        }
+
+        String path = "/entrypoint/branches/" + urlEncodePathSegment(branchId)
+                + "/printers/" + urlEncodePathSegment(printerId)
+                + "/visits";
+        Map<String, Object> query = new HashMap<>();
+        query.put("printTicket", printTicket);
+        if (!isBlank(segmentationRuleId)) {
+            query.put("segmentationRuleId", segmentationRuleId);
+        }
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "POST",
+                withQuery(path, query),
+                normalizedServiceIds,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
-                idempotencyKey);
+                idempotencyKey
+        );
+        return toResult(r);
     }
 
     @Override
@@ -424,7 +447,7 @@ public class VisitManagerApiImpl implements VisitManagerApi {
 
         Map<String, Object> body = new HashMap<>();
         body.put("serviceIds", normalizedServiceIds);
-        body.put("parameters", parameters == null ? Map.of() : parameters);
+        body.put("parameters", normalizeParameters(parameters));
 
         VisitManagerClient.CallResult r = client.callRestEndpoint(
                 "POST",
@@ -447,9 +470,19 @@ public class VisitManagerApiImpl implements VisitManagerApi {
                                             String sourceMessageId,
                                             String correlationId,
                                             String idempotencyKey) {
+        if (isBlank(method)) {
+            return invalidArgument("method");
+        }
+        if (isBlank(path)) {
+            return invalidArgument("path");
+        }
+        String normalizedMethod = normalizeMethod(method);
+        if (normalizedMethod == null) {
+            return invalidArgument("method");
+        }
         VisitManagerClient.CallResult r = client.callRestEndpoint(
-                method,
-                path,
+                normalizedMethod,
+                path.trim(),
                 body,
                 normalizeHeaders(headers),
                 sourceMessageId,
@@ -459,6 +492,20 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         return toResult(r);
     }
 
+
+    private static String normalizeMethod(String method) {
+        if (method == null) {
+            return null;
+        }
+        String m = method.trim().toUpperCase();
+        if (m.isEmpty()) {
+            return null;
+        }
+        return switch (m) {
+            case "GET", "POST", "PUT", "PATCH", "DELETE" -> m;
+            default -> null;
+        };
+    }
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
@@ -519,6 +566,26 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         }
         Map<String, String> out = new LinkedHashMap<>();
         for (Map.Entry<String, String> e : headers.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            String k = e.getKey().trim();
+            String v = e.getValue().trim();
+            if (k.isEmpty() || v.isEmpty()) {
+                continue;
+            }
+            out.put(k, v);
+        }
+        return out;
+    }
+
+
+    private static Map<String, String> normalizeParameters(Map<String, String> parameters) {
+        if (parameters == null || parameters.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : parameters.entrySet()) {
             if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
