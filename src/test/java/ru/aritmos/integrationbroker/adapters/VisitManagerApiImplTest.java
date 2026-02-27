@@ -158,6 +158,132 @@ class VisitManagerApiImplTest {
     }
 
     @Test
+    void createVisitWithParameters_shouldNormalizeAndDeduplicateServiceIdsBeforeClientCall() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.createVisitWithParameters(
+                "default",
+                "branch-1",
+                "ep-1",
+                java.util.List.of(" svc-1 ", "svc-1", "svc-2", " "),
+                Map.of("segment", "VIP"),
+                false,
+                null,
+                Map.of(),
+                "m1",
+                "c1",
+                "i1"
+        );
+
+        assertEquals(java.util.List.of("svc-1", "svc-2"), client.lastServiceIds);
+    }
+
+    @Test
+    void createVisitWithParameters_shouldValidateServiceIds() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        Map<String, Object> result = api.createVisitWithParameters(
+                "default",
+                "branch-1",
+                "ep-1",
+                java.util.Arrays.asList(" ", null),
+                Map.of("segment", "VIP"),
+                false,
+                null,
+                Map.of(),
+                "m1",
+                "c1",
+                "i1"
+        );
+
+        assertEquals("ERROR", result.get("mode"));
+        assertEquals("INVALID_ARGUMENT", result.get("errorCode"));
+        assertNull(client.lastServiceIds);
+    }
+
+    @Test
+    void createVisitWithParameters_shouldNormalizeParametersBeforeClientCall() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.createVisitWithParameters(
+                "default",
+                "branch-1",
+                "ep-1",
+                java.util.List.of("s1"),
+                new java.util.LinkedHashMap<>(java.util.Map.of(" segment ", " VIP ", "channel", " kiosks ")),
+                false,
+                null,
+                Map.of(),
+                "m1",
+                "c1",
+                "i1"
+        );
+
+        assertEquals(java.util.Map.of("segment", "VIP", "channel", "kiosks"), client.lastParameters);
+    }
+
+    @Test
+    void updateVisitParameters_shouldNormalizeParametersBeforeClientCall() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.updateVisitParameters(
+                "default",
+                "branch-1",
+                "visit-1",
+                new java.util.LinkedHashMap<>(java.util.Map.of(" queue ", " A1 ", " window", " 5 ")),
+                Map.of(),
+                "m1",
+                "c1",
+                "i1"
+        );
+
+        assertEquals(java.util.Map.of("queue", "A1", "window", "5"), client.lastParameters);
+    }
+
+    @Test
+    void callEndpoint_shouldValidateMethodAndPath() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        Map<String, Object> methodRes = api.callEndpoint("default", " ", "/x", Map.of(), Map.of(), "m1", "c1", "i1");
+        assertEquals("ERROR", methodRes.get("mode"));
+        assertEquals("INVALID_ARGUMENT", methodRes.get("errorCode"));
+
+        Map<String, Object> pathRes = api.callEndpoint("default", "get", " ", Map.of(), Map.of(), "m1", "c1", "i1");
+        assertEquals("ERROR", pathRes.get("mode"));
+        assertEquals("INVALID_ARGUMENT", pathRes.get("errorCode"));
+        assertNull(client.lastCall);
+    }
+
+    @Test
+    void callEndpoint_shouldNormalizeMethodAndPath() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.callEndpoint("default", " post ", " /custom/path ", Map.of("a", 1), Map.of(), "m1", "c1", "i1");
+
+        assertEquals("POST", client.lastMethod);
+        assertEquals("/custom/path", client.lastPath);
+    }
+
+
+    @Test
+    void callEndpoint_shouldRejectUnsupportedMethod() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        Map<String, Object> result = api.callEndpoint("default", "TRACE", "/custom/path", Map.of(), Map.of(), "m1", "c1", "i1");
+
+        assertEquals("ERROR", result.get("mode"));
+        assertEquals("INVALID_ARGUMENT", result.get("errorCode"));
+        assertNull(client.lastCall);
+    }
+
+    @Test
     void shouldNotInvokeClientWhenVisitIdMissingForUpdate() {
         StubVisitManagerClient client = new StubVisitManagerClient();
         VisitManagerApiImpl api = new VisitManagerApiImpl(client);
@@ -233,6 +359,30 @@ class VisitManagerApiImplTest {
         Map<?, ?> body = (Map<?, ?>) client.lastBody;
         assertTrue(body.containsKey("serviceIds"));
         assertTrue(body.containsKey("parameters"));
+    }
+
+    @Test
+    void createVisitOnPrinterWithParameters_shouldNormalizeParametersMap() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.createVisitOnPrinterWithParameters(
+                "default",
+                "br-1",
+                "pr-1",
+                java.util.List.of("svc-1"),
+                new java.util.LinkedHashMap<>(java.util.Map.of("segment", " VIP ", "channel", " kiosks ")),
+                true,
+                null,
+                Map.of(),
+                "m1",
+                "c1",
+                "i1"
+        );
+
+        assertTrue(client.lastBody instanceof Map);
+        Map<?, ?> body = (Map<?, ?>) client.lastBody;
+        assertEquals(java.util.Map.of("segment", "VIP", "channel", "kiosks"), body.get("parameters"));
     }
 
     @Test
@@ -373,11 +523,8 @@ class VisitManagerApiImplTest {
 
         api.createVisitOnPrinterWithServices("default", "br-1", "pr-1", java.util.List.of(" svc1 ", "svc1", "svc2", " "), true, null, Map.of(), "m1", "c1", "i1");
 
-        assertTrue(client.lastBody instanceof Map);
-        Map<?, ?> body = (Map<?, ?>) client.lastBody;
-        Object ids = body.get("serviceIds");
-        assertTrue(ids instanceof java.util.List);
-        assertEquals(java.util.List.of("svc1", "svc2"), ids);
+        assertTrue(client.lastBody instanceof java.util.List);
+        assertEquals(java.util.List.of("svc1", "svc2"), client.lastBody);
     }
 
     @Test
@@ -664,6 +811,8 @@ class VisitManagerApiImplTest {
         private String lastCall;
         private Object lastBody;
         private Map<String, String> lastHeaders;
+        private Map<String, String> lastParameters;
+        private java.util.List<String> lastServiceIds;
 
         private StubVisitManagerClient() {
             super(null, null, null);
@@ -697,6 +846,8 @@ class VisitManagerApiImplTest {
                                                         String correlationId,
                                                         String idempotencyKey) {
             this.lastCall = "createVisitWithParametersRest";
+            this.lastServiceIds = serviceIds;
+            this.lastParameters = parameters;
             return CallResult.direct(200, null);
         }
 
@@ -709,6 +860,7 @@ class VisitManagerApiImplTest {
                                                     String correlationId,
                                                     String idempotencyKey) {
             this.lastCall = "updateVisitParametersRest";
+            this.lastParameters = parameters;
             return CallResult.direct(200, null);
         }
 

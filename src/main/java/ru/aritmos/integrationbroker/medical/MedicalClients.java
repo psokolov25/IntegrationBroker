@@ -100,9 +100,10 @@ public class MedicalClients {
                     ? request.patientId()
                     : "P-" + safeHash(firstKeyFromKeys(request == null ? null : request.keys()));
 
+            String startBase = deterministicStartAt(pid);
             java.util.List<MedicalModels.UpcomingService> list = java.util.List.of(
-                    new MedicalModels.UpcomingService("LAB", "Анализ крови", "Лаборатория", "101", null, java.util.Map.of("patientId", pid)),
-                    new MedicalModels.UpcomingService("THER", "Осмотр терапевта", "Терапия", "202", null, java.util.Map.of("patientId", pid))
+                    new MedicalModels.UpcomingService("LAB", "Анализ крови", "Лаборатория", "101", startBase, java.util.Map.of("patientId", pid)),
+                    new MedicalModels.UpcomingService("THER", "Осмотр терапевта", "Терапия", "202", shiftIso(startBase, 1800), java.util.Map.of("patientId", pid))
             );
             return MedicalModels.MedicalOutcome.ok(list, java.util.Map.of("profile", profileId(), "count", list.size()));
         }
@@ -121,13 +122,43 @@ public class MedicalClients {
                     meta
             ).result();
 
-            java.util.Map<String, Object> hints = java.util.Map.of(
+            java.util.Map<String, Object> hints = mapWithoutNulls(
                     "routeType", "MULTI_STAGE_EXAM",
                     "recommendedStart", services.isEmpty() ? null : services.get(0).department(),
                     "profile", profileId()
             );
 
             return MedicalModels.MedicalOutcome.ok(new MedicalModels.MedicalRoutingContext(patient, services, hints), hints);
+        }
+
+        private static String deterministicStartAt(String seed) {
+            int h = Math.abs(safeHash(seed).hashCode());
+            java.time.Instant base = java.time.Instant.parse("2026-01-10T08:00:00Z").plusSeconds(h % 7200L);
+            return base.toString();
+        }
+
+        private static String shiftIso(String isoInstant, long seconds) {
+            if (isoInstant == null || isoInstant.isBlank()) {
+                return null;
+            }
+            return java.time.Instant.parse(isoInstant).plusSeconds(seconds).toString();
+        }
+
+        private static java.util.Map<String, Object> mapWithoutNulls(String k1, Object v1,
+                                                                     String k2, Object v2,
+                                                                     String k3, Object v3) {
+            java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+            putIfPresent(out, k1, v1);
+            putIfPresent(out, k2, v2);
+            putIfPresent(out, k3, v3);
+            return out;
+        }
+
+        private static void putIfPresent(java.util.Map<String, Object> out, String key, Object value) {
+            if (key == null || key.isBlank() || value == null) {
+                return;
+            }
+            out.put(key, value);
         }
 
         private static String firstKey(MedicalModels.GetPatientRequest request) {

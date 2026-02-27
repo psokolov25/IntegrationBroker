@@ -35,8 +35,9 @@ public class DataBusApiImpl implements DataBusApi {
                                             String correlationId,
                                             String idempotencyKey) {
         String effectiveType = safeType(type, "UNKNOWN");
-        Map<String, Object> envelope = canonicalEventEnvelope(target, destination, "events", effectiveType, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, payload);
-        long outboxId = dataBus.publishEvent(effectiveType, destination, sendToOtherBus, envelope, sourceMessageId, correlationId, idempotencyKey);
+        String normalizedDestination = normalizeOrDefault(destination, "*");
+        Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events", effectiveType, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, payload);
+        long outboxId = dataBus.publishEvent(effectiveType, normalizedDestination, sendToOtherBus, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("events", outboxId, envelope);
     }
 
@@ -50,9 +51,11 @@ public class DataBusApiImpl implements DataBusApi {
                                                  String correlationId,
                                                  String idempotencyKey) {
         String effectiveType = safeType(type, "UNKNOWN");
-        Map<String, Object> envelope = canonicalEventEnvelope(target, destination, "events.route", effectiveType, correlationId, sourceMessageId, idempotencyKey, null, payload);
-        envelope.put("routeDataBusUrls", dataBusUrls == null ? List.of() : dataBusUrls);
-        long outboxId = dataBus.publishEventRoute(effectiveType, destination, dataBusUrls, envelope, sourceMessageId, correlationId, idempotencyKey);
+        String normalizedDestination = normalizeOrDefault(destination, "*");
+        List<String> normalizedRouteUrls = normalizeRouteUrls(dataBusUrls);
+        Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events.route", effectiveType, correlationId, sourceMessageId, idempotencyKey, null, payload);
+        envelope.put("routeDataBusUrls", normalizedRouteUrls);
+        long outboxId = dataBus.publishEventRoute(effectiveType, normalizedDestination, normalizedRouteUrls, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("events.route", outboxId, envelope);
     }
 
@@ -66,8 +69,9 @@ public class DataBusApiImpl implements DataBusApi {
                                            String correlationId,
                                            String idempotencyKey) {
         String effectiveFunction = safeType(function, "unknown");
-        Map<String, Object> envelope = canonicalRequestEnvelope(target, destination, effectiveFunction, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, params);
-        long outboxId = dataBus.sendRequest(effectiveFunction, destination, sendToOtherBus, envelope, sourceMessageId, correlationId, idempotencyKey);
+        String normalizedDestination = normalizeOrDefault(destination, "*");
+        Map<String, Object> envelope = canonicalRequestEnvelope(target, normalizedDestination, effectiveFunction, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, params);
+        long outboxId = dataBus.sendRequest(effectiveFunction, normalizedDestination, sendToOtherBus, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("requests", outboxId, envelope);
     }
 
@@ -81,9 +85,24 @@ public class DataBusApiImpl implements DataBusApi {
                                             String sourceMessageId,
                                             String correlationId,
                                             String idempotencyKey) {
-        Map<String, Object> envelope = canonicalResponseEnvelope(target, destination, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, status, message, response);
-        long outboxId = dataBus.sendResponse(destination, sendToOtherBus, status, message, envelope, sourceMessageId, correlationId, idempotencyKey);
+        String normalizedDestination = normalizeOrDefault(destination, "*");
+        Map<String, Object> envelope = canonicalResponseEnvelope(target, normalizedDestination, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, status, message, response);
+        long outboxId = dataBus.sendResponse(normalizedDestination, sendToOtherBus, status, message, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("responses", outboxId, envelope);
+    }
+
+    private List<String> normalizeRouteUrls(List<String> dataBusUrls) {
+        if (dataBusUrls == null || dataBusUrls.isEmpty()) {
+            return List.of();
+        }
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String raw : dataBusUrls) {
+            String v = normalize(raw);
+            if (v != null) {
+                out.add(v);
+            }
+        }
+        return List.copyOf(out);
     }
 
     private Map<String, Object> response(String transport, long outboxId, Map<String, Object> envelope) {
@@ -112,10 +131,15 @@ public class DataBusApiImpl implements DataBusApi {
         envelope.put("source", resolveSenderServiceName());
         envelope.put("timestamp", Instant.now().toString());
         envelope.put("envelopeVersion", "ib.v1");
-        envelope.put("correlationId", resolveCorrelationId(correlationId, sourceMessageId));
+        String resolvedCorrelationId = resolveCorrelationId(correlationId, sourceMessageId);
+        String resolvedRequestId = resolveRequestId(sourceMessageId, correlationId);
+        String resolvedIdempotencyKey = resolveIdempotencyKey(idempotencyKey, sourceMessageId, correlationId);
+        envelope.put("correlationId", resolvedCorrelationId);
+        envelope.put("requestId", resolvedRequestId);
         envelope.put("sourceMessageId", normalize(sourceMessageId));
-        envelope.put("idempotencyKey", resolveIdempotencyKey(idempotencyKey, sourceMessageId, correlationId));
+        envelope.put("idempotencyKey", resolvedIdempotencyKey);
         envelope.put("payload", payload);
+        envelope.put("_ib", buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey));
         envelope.put("request", null);
         envelope.put("response", null);
         envelope.put("status", null);
@@ -139,6 +163,20 @@ public class DataBusApiImpl implements DataBusApi {
         return envelope;
     }
 
+    private Map<String, Object> buildIntegrationMetadata(String correlationId, String requestId, String idempotencyKey) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        if (correlationId != null) {
+            meta.put("correlationId", correlationId);
+        }
+        if (requestId != null) {
+            meta.put("requestId", requestId);
+        }
+        if (idempotencyKey != null) {
+            meta.put("idempotencyKey", idempotencyKey);
+        }
+        return meta;
+    }
+
     private String normalize(String value) {
         if (value == null) {
             return null;
@@ -155,6 +193,15 @@ public class DataBusApiImpl implements DataBusApi {
         return normalize(sourceMessageId);
     }
 
+
+
+    private String resolveRequestId(String sourceMessageId, String correlationId) {
+        String req = normalize(sourceMessageId);
+        if (req != null) {
+            return req;
+        }
+        return normalize(correlationId);
+    }
 
     private String resolveIdempotencyKey(String idempotencyKey, String sourceMessageId, String correlationId) {
         String idem = normalize(idempotencyKey);
