@@ -47,15 +47,16 @@ public class DataBusApiImpl implements DataBusApi {
                                                  String type,
                                                  List<String> dataBusUrls,
                                                  Object payload,
+                                                 Boolean sendToOtherBus,
                                                  String sourceMessageId,
                                                  String correlationId,
                                                  String idempotencyKey) {
         String effectiveType = safeType(type, "UNKNOWN");
         String normalizedDestination = normalizeOrDefault(destination, "*");
         List<String> normalizedRouteUrls = normalizeRouteUrls(dataBusUrls);
-        Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events.route", effectiveType, correlationId, sourceMessageId, idempotencyKey, null, payload);
+        Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events.route", effectiveType, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, payload);
         envelope.put("routeDataBusUrls", normalizedRouteUrls);
-        long outboxId = dataBus.publishEventRoute(effectiveType, normalizedDestination, normalizedRouteUrls, envelope, sourceMessageId, correlationId, idempotencyKey);
+        long outboxId = dataBus.publishEventRoute(effectiveType, normalizedDestination, sendToOtherBus, normalizedRouteUrls, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("events.route", outboxId, envelope);
     }
 

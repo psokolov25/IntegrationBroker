@@ -46,6 +46,14 @@ Integration Broker экспортирует alias `visit`:
 - `visit.servicesCatalog(branchId)` — получить каталог услуг отделения (для сопоставления)
 - `visit.matchServiceIdsByNames(branchId, names, allowContains)` — сопоставить внешние имена процедур со `serviceIds`
 - `visit.createVisitRest(args, meta)` — создать визит через REST (с fallback в REST outbox при ошибке)
+- `visit.createVirtualVisitRest(args, meta)` — создать виртуальный визит (service-point сценарий)
+- `visit.createVisitOnPrinterRest(args, meta)` — создать визит через выбранный принтер (services/parameters)
+- `visit.callNextVisitRest(args, meta)` — вызвать следующего посетителя на service point
+- `visit.enterServicePointModeRest(args, meta)` — вход сотрудника в service-point режим (в т.ч. с `sid`)
+- `visit.exitServicePointModeRest(args, meta)` — выход сотрудника из service-point режима (в т.ч. с `sid`)
+- `visit.startAutoCallRest(args, meta)` — включение авто-вызова на service point
+- `visit.cancelAutoCallRest(args, meta)` — выключение авто-вызова на service point
+- `visit.postponeCurrentVisitRest(args, meta)` — отложить текущий визит на service point
 
 Пример вызова создания визита:
 
@@ -100,6 +108,30 @@ def body = [
 
 output.dataBusOutboxId = bus.publishEvent('VISIT_CREATE', 'visitmanager', body)
 ```
+
+Для route-варианта (fan-out в несколько внешних шин) можно использовать `dataBus.publishEventRoute(...)` на Java API или `bus.publishEventRoute(...)` в Groovy.
+
+```groovy
+output.routeOutboxId = bus.publishEventRoute(
+  'VISIT_CREATE',
+  'visitmanager',
+  true,
+  ['http://bus-a:8080', 'http://bus-b:8080'],
+  body,
+  meta.messageId as String,
+  meta.correlationId as String,
+  meta.idempotencyKey as String
+)
+```
+
+
+Для прототипных request/response сценариев DataBus alias `bus` также предоставляет упрощённые helper-методы:
+
+- `bus.sendRequest(function, destination, params)`
+- `bus.sendRequest(function, destination, params, correlationId)`
+- `bus.sendRequest(function, destination, sendToOtherBus, params, correlationId)`
+- `bus.sendResponse(destination, status, message, response)`
+- `bus.sendResponse(destination, status, message, response, correlationId)`
 
 ### Заголовки DataBus
 

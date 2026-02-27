@@ -50,6 +50,15 @@ public class MedicalGroovyAdapter extends GroovyObjectSupport {
     }
 
     /**
+     * Упрощённый helper: получить пациента только по keys.
+     */
+    public MedicalModels.MedicalOutcome<MedicalModels.Patient> getPatientByKeys(Object keys, Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", keys);
+        return getPatient(req, meta);
+    }
+
+    /**
      * Получить предстоящие услуги/этапы.
      */
     public MedicalModels.MedicalOutcome<java.util.List<MedicalModels.UpcomingService>> getUpcomingServices(Object request) {
@@ -60,6 +69,16 @@ public class MedicalGroovyAdapter extends GroovyObjectSupport {
         MedicalModels.UpcomingServicesRequest req = convert(request, MedicalModels.UpcomingServicesRequest.class,
                 "Некорректный запрос getUpcomingServices: ожидается Map/JSON с полями patientId/keys/context");
         return medicalService.getUpcomingServices(req, metaMap(meta));
+    }
+
+    /**
+     * Упрощённый helper: получить предстоящие услуги по patientId.
+     */
+    public MedicalModels.MedicalOutcome<java.util.List<MedicalModels.UpcomingService>> getUpcomingServicesByPatient(String patientId,
+                                                                                                                     Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("patientId", patientId);
+        return getUpcomingServices(req, meta);
     }
 
     /**

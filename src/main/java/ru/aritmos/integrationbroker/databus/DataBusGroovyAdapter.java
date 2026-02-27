@@ -85,6 +85,7 @@ public class DataBusGroovyAdapter {
      */
     public long publishEventRoute(String type,
                                   String destination,
+                                  Boolean sendToOtherBus,
                                   List<String> dataBusUrls,
                                   Object body,
                                   String sourceMessageId,
@@ -101,7 +102,71 @@ public class DataBusGroovyAdapter {
                 "body", body
         );
 
-        return doCall(eff, cfg, destination, null, path, routeBody, sourceMessageId, correlationId, idempotencyKey, null, null, false);
+        boolean includeForwardHeader = sendToOtherBus != null;
+        return doCall(eff, cfg, destination, sendToOtherBus, path, routeBody, sourceMessageId, correlationId, idempotencyKey, null, null, includeForwardHeader);
+    }
+
+    public long publishEventRoute(String type,
+                                  String destination,
+                                  List<String> dataBusUrls,
+                                  Object body,
+                                  String sourceMessageId,
+                                  String correlationId,
+                                  String idempotencyKey) {
+        return publishEventRoute(type, destination, null, dataBusUrls, body, sourceMessageId, correlationId, idempotencyKey);
+    }
+    /**
+     * Публикация route-события с минимальным набором аргументов.
+     */
+    public long publishEventRoute(String type,
+                                  String destination,
+                                  List<String> dataBusUrls,
+                                  Object body,
+                                  String correlationId) {
+        return publishEventRoute(type, destination, null, dataBusUrls, body, null, correlationId, null);
+    }
+
+
+    /**
+     * Публикация route-события с флагом sendToOtherBus и correlationId.
+     */
+    public long publishEventRoute(String type,
+                                  String destination,
+                                  Boolean sendToOtherBus,
+                                  List<String> dataBusUrls,
+                                  Object body,
+                                  String correlationId) {
+        return publishEventRoute(type, destination, sendToOtherBus, dataBusUrls, body, null, correlationId, null);
+    }
+
+    /**
+     * Прототип DataBus request (упрощённый вариант для Groovy flow).
+     */
+    public long sendRequest(String function,
+                            String destination,
+                            Map<String, Object> params) {
+        return sendRequest(function, destination, null, params, null, null, null);
+    }
+
+    /**
+     * Прототип DataBus request с correlationId.
+     */
+    public long sendRequest(String function,
+                            String destination,
+                            Map<String, Object> params,
+                            String correlationId) {
+        return sendRequest(function, destination, null, params, null, correlationId, null);
+    }
+
+    /**
+     * Прототип DataBus request с sendToOtherBus и correlationId.
+     */
+    public long sendRequest(String function,
+                            String destination,
+                            Boolean sendToOtherBus,
+                            Map<String, Object> params,
+                            String correlationId) {
+        return sendRequest(function, destination, sendToOtherBus, params, null, correlationId, null);
     }
 
     public long sendRequest(String function,
@@ -122,8 +187,26 @@ public class DataBusGroovyAdapter {
     }
 
     /**
-     * Прототип DataBus response с метаданными трассировки.
+     * Прототип DataBus response (упрощённый вариант для Groovy flow).
      */
+    public long sendResponse(String destination,
+                             Integer status,
+                             String message,
+                             Object response) {
+        return sendResponse(destination, null, status, message, response, null, null, null);
+    }
+
+    /**
+     * Прототип DataBus response с correlationId.
+     */
+    public long sendResponse(String destination,
+                             Integer status,
+                             String message,
+                             Object response,
+                             String correlationId) {
+        return sendResponse(destination, null, status, message, response, null, correlationId, null);
+    }
+
     public long sendResponse(String destination,
                              Boolean sendToOtherBus,
                              Integer status,

@@ -46,6 +46,15 @@ public class AppointmentGroovyAdapter extends GroovyObjectSupport {
         return service.getAppointments(req, metaMap(meta));
     }
 
+    /**
+     * Упрощённый helper для flow: получить список записей по набору keys.
+     */
+    public AppointmentModels.AppointmentOutcome<java.util.List<AppointmentModels.Appointment>> getAppointmentsByKeys(Object keys, Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", keys);
+        return getAppointments(req, meta);
+    }
+
     public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> getNearestAppointment(Object request) {
         return getNearestAppointment(request, Map.of());
     }
@@ -94,6 +103,29 @@ public class AppointmentGroovyAdapter extends GroovyObjectSupport {
         AppointmentModels.BuildQueuePlanRequest req = convert(request, AppointmentModels.BuildQueuePlanRequest.class,
                 "Некорректный запрос buildQueuePlan: ожидается Map/JSON с полями appointmentId/keys/context");
         return service.buildQueuePlan(req, metaMap(meta));
+    }
+
+    /**
+     * Упрощённый helper: построить queue plan по appointmentId/keys/context без ручной сборки request.
+     */
+    public AppointmentModels.AppointmentOutcome<AppointmentModels.QueuePlan> buildQueuePlanSimple(String appointmentId,
+                                                                                                   Object keys,
+                                                                                                   Object context,
+                                                                                                   Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("appointmentId", appointmentId);
+        req.put("keys", keys);
+        req.put("context", context);
+        return buildQueuePlan(req, meta);
+    }
+
+    /**
+     * Упрощённый helper для flow: получить ближайшую запись, передав только ключи клиента.
+     */
+    public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> getNearestAppointmentByKeys(Object keys, Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", keys);
+        return getNearestAppointment(req, meta);
     }
 
     private <T> T convert(Object raw, Class<T> clazz, String message) {

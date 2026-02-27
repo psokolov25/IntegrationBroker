@@ -62,6 +62,9 @@
 ## Использование в Groovy-flow
 Alias доступен как `appointment`.
 
+Для кратких flow есть helper `appointment.getAppointmentsByKeys(keys, meta)` для быстрого получения списка записей без ручной сборки request.
+Также доступен helper `appointment.buildQueuePlanSimple(appointmentId, keys, context, meta)` для ускоренной сборки queue plan.
+
 Пример: получить ближайшую запись и построить план обслуживания:
 
 ```groovy

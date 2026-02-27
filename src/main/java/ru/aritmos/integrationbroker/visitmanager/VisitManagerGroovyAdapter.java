@@ -82,6 +82,13 @@ public class VisitManagerGroovyAdapter {
         Map<String, String> params = toStringMap(m.get("parameters"));
         Map<String, String> headers = toStringMap(m.get("headers"));
 
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (serviceIds.isEmpty()) {
+            return invalidArgument("serviceIds");
+        }
+
         String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
         String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
         String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
@@ -99,6 +106,349 @@ public class VisitManagerGroovyAdapter {
                 idempotencyKey
         );
 
+        return toMap(r);
+    }
+
+    /**
+     * Создать виртуальный визит через endpoint
+     * {@code POST /entrypoint/branches/{branchId}/service-points/{servicePointId}/virtual-visits}.
+     */
+    public Map<String, Object> createVirtualVisitRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String servicePointId = safeStr(m.get("servicePointId"));
+        List<String> serviceIds = toStringList(m.get("serviceIds"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (servicePointId == null) {
+            return invalidArgument("servicePointId");
+        }
+        if (serviceIds.isEmpty()) {
+            return invalidArgument("serviceIds");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        String path = "/entrypoint/branches/" + urlEncode(branchId)
+                + "/service-points/" + urlEncode(servicePointId)
+                + "/virtual-visits";
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "POST",
+                path,
+                serviceIds,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Создать визит через принтер endpoint
+     * {@code POST /entrypoint/branches/{branchId}/printers/{printerId}/visits}.
+     */
+    public Map<String, Object> createVisitOnPrinterRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String printerId = safeStr(m.get("printerId"));
+        boolean printTicket = Boolean.TRUE.equals(m.get("printTicket"));
+        String segmentationRuleId = safeStr(m.get("segmentationRuleId"));
+        List<String> serviceIds = toStringList(m.get("serviceIds"));
+        Map<String, String> params = toStringMap(m.get("parameters"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (printerId == null) {
+            return invalidArgument("printerId");
+        }
+        if (serviceIds.isEmpty()) {
+            return invalidArgument("serviceIds");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        String path = "/entrypoint/branches/" + urlEncode(branchId)
+                + "/printers/" + urlEncode(printerId)
+                + "/visits"
+                + "?printTicket=" + printTicket
+                + (segmentationRuleId == null ? "" : "&segmentationRuleId=" + urlEncode(segmentationRuleId));
+
+        Object body = params.isEmpty()
+                ? serviceIds
+                : Map.of("serviceIds", serviceIds, "parameters", params);
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "POST",
+                path,
+                body,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Вызвать следующего посетителя endpoint
+     * {@code POST /servicepoint/branches/{branchId}/servicePoints/{servicePointId}/call}.
+     */
+    public Map<String, Object> callNextVisitRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String servicePointId = safeStr(m.get("servicePointId"));
+        boolean autoCallEnabled = Boolean.TRUE.equals(m.get("autoCallEnabled"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (servicePointId == null) {
+            return invalidArgument("servicePointId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/servicePoints/" + urlEncode(servicePointId)
+                + "/call?isAutoCallEnabled=" + autoCallEnabled;
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "POST",
+                path,
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Вход в режим обслуживания service point endpoint
+     * {@code POST /servicepoint/branches/{branchId}/enter}.
+     */
+    public Map<String, Object> enterServicePointModeRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String mode = safeStr(m.get("mode"));
+        Object autoCallEnabled = m.get("autoCallEnabled");
+        String sid = safeStr(m.get("sid"));
+        Map<String, String> headers = withSidCookie(toStringMap(m.get("headers")), sid);
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        StringBuilder path = new StringBuilder("/servicepoint/branches/")
+                .append(urlEncode(branchId))
+                .append("/enter");
+        boolean hasQuery = false;
+        if (mode != null) {
+            path.append("?mode=").append(urlEncode(mode));
+            hasQuery = true;
+        }
+        if (autoCallEnabled instanceof Boolean ac) {
+            path.append(hasQuery ? "&" : "?")
+                    .append("isAutoCallEnabled=")
+                    .append(ac);
+        }
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "POST",
+                path.toString(),
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Выход из режима обслуживания service point endpoint
+     * {@code POST /servicepoint/branches/{branchId}/exit}.
+     */
+    public Map<String, Object> exitServicePointModeRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        Object forced = m.get("isForced");
+        String reason = safeStr(m.get("reason"));
+        String sid = safeStr(m.get("sid"));
+        Map<String, String> headers = withSidCookie(toStringMap(m.get("headers")), sid);
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        StringBuilder path = new StringBuilder("/servicepoint/branches/")
+                .append(urlEncode(branchId))
+                .append("/exit");
+        boolean hasQuery = false;
+        if (forced instanceof Boolean f) {
+            path.append("?isForced=").append(f);
+            hasQuery = true;
+        }
+        if (reason != null) {
+            path.append(hasQuery ? "&" : "?")
+                    .append("reason=")
+                    .append(urlEncode(reason));
+        }
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "POST",
+                path.toString(),
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Включить авто-вызов endpoint
+     * {@code PUT /servicepoint/branches/{branchId}/service-points/{servicePointId}/auto-call/start}.
+     */
+    public Map<String, Object> startAutoCallRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String servicePointId = safeStr(m.get("servicePointId"));
+        String sid = safeStr(m.get("sid"));
+        Map<String, String> headers = withSidCookie(toStringMap(m.get("headers")), sid);
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (servicePointId == null) {
+            return invalidArgument("servicePointId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/service-points/" + urlEncode(servicePointId)
+                + "/auto-call/start";
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "PUT",
+                path,
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Отключить авто-вызов endpoint
+     * {@code PUT /servicepoint/branches/{branchId}/service-points/{servicePointId}/auto-call/cancel}.
+     */
+    public Map<String, Object> cancelAutoCallRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String servicePointId = safeStr(m.get("servicePointId"));
+        String sid = safeStr(m.get("sid"));
+        Map<String, String> headers = withSidCookie(toStringMap(m.get("headers")), sid);
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (servicePointId == null) {
+            return invalidArgument("servicePointId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/service-points/" + urlEncode(servicePointId)
+                + "/auto-call/cancel";
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "PUT",
+                path,
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Отложить текущий визит endpoint
+     * {@code PUT /servicepoint/branches/{branchId}/servicePoints/{servicePointId}/postpone}.
+     */
+    public Map<String, Object> postponeCurrentVisitRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String servicePointId = safeStr(m.get("servicePointId"));
+        String sid = safeStr(m.get("sid"));
+        Map<String, String> headers = withSidCookie(toStringMap(m.get("headers")), sid);
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (servicePointId == null) {
+            return invalidArgument("servicePointId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/servicePoints/" + urlEncode(servicePointId)
+                + "/postpone";
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "PUT",
+                path,
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
         return toMap(r);
     }
 
@@ -189,7 +539,8 @@ public class VisitManagerGroovyAdapter {
             }
             return out;
         }
-        return List.of(safeStr(v));
+        String one = safeStr(v);
+        return one == null ? List.of() : List.of(one);
     }
 
     private static Map<String, String> toStringMap(Object v) {
@@ -211,6 +562,45 @@ public class VisitManagerGroovyAdapter {
         return Map.of();
     }
 
+    private static Map<String, String> withSidCookie(Map<String, String> headers, String sid) {
+        String normalizedSid = safeStr(sid);
+        if (normalizedSid == null) {
+            return headers == null ? Map.of() : headers;
+        }
+        Map<String, String> out = new HashMap<>();
+        if (headers != null) {
+            out.putAll(headers);
+        }
+        String key = "Cookie";
+        String existing = null;
+        for (Map.Entry<String, String> e : out.entrySet()) {
+            if (e.getKey() != null && "cookie".equalsIgnoreCase(e.getKey())) {
+                key = e.getKey();
+                existing = e.getValue();
+                break;
+            }
+        }
+        String sidCookie = "sid=" + normalizedSid;
+        if (existing == null || existing.isBlank()) {
+            out.put(key, sidCookie);
+        } else if (!existing.contains("sid=")) {
+            out.put(key, existing + "; " + sidCookie);
+        }
+        return out;
+    }
+
+    private static Map<String, Object> invalidArgument(String field) {
+        Map<String, Object> out = new HashMap<>();
+        out.put("success", false);
+        out.put("mode", "ERROR");
+        out.put("httpStatus", 0);
+        out.put("outboxId", 0L);
+        out.put("errorCode", "INVALID_ARGUMENT");
+        out.put("errorMessage", "Не задан обязательный параметр: " + field);
+        out.put("body", null);
+        return out;
+    }
+
     private static String normalizeName(String s) {
         if (s == null) {
             return null;
@@ -222,5 +612,9 @@ public class VisitManagerGroovyAdapter {
         // грубая нормализация: убираем двойные пробелы
         t = t.replaceAll("\\s+", " ");
         return t;
+    }
+
+    private static String urlEncode(String value) {
+        return java.net.URLEncoder.encode(String.valueOf(value), java.nio.charset.StandardCharsets.UTF_8);
     }
 }
