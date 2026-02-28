@@ -102,6 +102,21 @@ public class CrmGroovyAdapter extends GroovyObjectSupport {
         return crmService.createLead(req, metaMap(meta));
     }
 
+
+    /**
+     * Упрощённый helper: создать лид по минимальному набору полей.
+     */
+    public CrmModels.CrmOutcome<CrmModels.LeadRef> createLeadSimple(String title,
+                                                                     String customerCrmId,
+                                                                     Object attributes,
+                                                                     Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("title", title);
+        req.put("customerCrmId", customerCrmId);
+        req.put("attributes", attributes);
+        return createLead(req, meta);
+    }
+
     /**
      * Создание задачи.
      */
@@ -113,6 +128,45 @@ public class CrmGroovyAdapter extends GroovyObjectSupport {
         CrmModels.CreateTaskRequest req = convert(request, CrmModels.CreateTaskRequest.class,
                 "Некорректный запрос createTask: ожидается Map/JSON с полями title/description/assignee/customerCrmId");
         return crmService.createTask(req, metaMap(meta));
+    }
+
+
+    /**
+     * Упрощённый helper: создать задачу по клиенту с минимальными полями.
+     */
+    public CrmModels.CrmOutcome<CrmModels.TaskRef> createTaskSimple(String title,
+                                                                     String customerCrmId,
+                                                                     String assignee,
+                                                                     Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("title", title);
+        req.put("customerCrmId", customerCrmId);
+        req.put("assignee", assignee);
+        return createTask(req, meta);
+    }
+
+    /**
+     * Упрощённый helper: создать задачу и сразу добавить заметку к ней.
+     */
+    public CrmModels.CrmOutcome<Map<String, Object>> createTaskWithNoteSimple(String title,
+                                                                               String customerCrmId,
+                                                                               String assignee,
+                                                                               String noteText,
+                                                                               Object meta) {
+        CrmModels.CrmOutcome<CrmModels.TaskRef> taskOut = createTaskSimple(title, customerCrmId, assignee, meta);
+        if (!taskOut.success() || taskOut.result() == null || taskOut.result().taskId() == null) {
+            return CrmModels.CrmOutcome.fail(taskOut.errorCode(), taskOut.errorMessage(), taskOut.raw());
+        }
+
+        CrmModels.CrmOutcome<Map<String, Object>> noteOut = appendNoteSimple("task", taskOut.result().taskId(), noteText, meta);
+        if (!noteOut.success()) {
+            return noteOut;
+        }
+
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("task", taskOut.result());
+        result.put("note", noteOut.result());
+        return CrmModels.CrmOutcome.ok(result, java.util.Map.of("mode", "simple-composite"));
     }
 
     /**
@@ -128,6 +182,21 @@ public class CrmGroovyAdapter extends GroovyObjectSupport {
         return crmService.appendNote(req, metaMap(meta));
     }
 
+
+    /**
+     * Упрощённый helper: добавить заметку по базовым полям.
+     */
+    public CrmModels.CrmOutcome<Map<String, Object>> appendNoteSimple(String entityType,
+                                                                       String entityId,
+                                                                       String text,
+                                                                       Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("entityType", entityType);
+        req.put("entityId", entityId);
+        req.put("text", text);
+        return appendNote(req, meta);
+    }
+
     /**
      * Упрощённый helper: создать сервисное обращение по базовым полям.
      */
@@ -140,6 +209,31 @@ public class CrmGroovyAdapter extends GroovyObjectSupport {
         req.put("customerCrmId", customerCrmId);
         req.put("channel", channel);
         return createServiceCase(req, meta);
+    }
+
+
+    /**
+     * Упрощённый helper: создать сервисное обращение и сразу добавить заметку.
+     */
+    public CrmModels.CrmOutcome<Map<String, Object>> createServiceCaseWithNoteSimple(String title,
+                                                                                      String customerCrmId,
+                                                                                      String channel,
+                                                                                      String noteText,
+                                                                                      Object meta) {
+        CrmModels.CrmOutcome<CrmModels.ServiceCaseRef> caseOut = createServiceCaseSimple(title, customerCrmId, channel, meta);
+        if (!caseOut.success() || caseOut.result() == null || caseOut.result().caseId() == null) {
+            return CrmModels.CrmOutcome.fail(caseOut.errorCode(), caseOut.errorMessage(), caseOut.raw());
+        }
+
+        CrmModels.CrmOutcome<Map<String, Object>> noteOut = appendNoteSimple("serviceCase", caseOut.result().caseId(), noteText, meta);
+        if (!noteOut.success()) {
+            return noteOut;
+        }
+
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("serviceCase", caseOut.result());
+        result.put("note", noteOut.result());
+        return CrmModels.CrmOutcome.ok(result, java.util.Map.of("mode", "simple-composite"));
     }
 
     /**

@@ -64,6 +64,11 @@ Alias доступен как `appointment`.
 
 Для кратких flow есть helper `appointment.getAppointmentsByKeys(keys, meta)` для быстрого получения списка записей без ручной сборки request.
 Также доступен helper `appointment.buildQueuePlanSimple(appointmentId, keys, context, meta)` для ускоренной сборки queue plan.
+Для быстрых операций записи доступны `appointment.bookSlotSimple(slotId, serviceCode, keys, context, meta)` и `appointment.cancelAppointmentSimple(appointmentId, reason, context, meta)`.
+Для краткого запроса слотов есть `appointment.getAvailableSlotsSimple(serviceCode, locationId, from, to, context, meta)` (поля `from/to` передаются как `Instant`).
+Для сценария nearest-by-client доступен helper `appointment.getNearestAppointmentSimple(clientId, branchId, meta)`.
+Для списка записей по клиенту есть helper `appointment.getAppointmentsByClientId(clientId, context, meta)`.
+Для списка записей по клиенту за период доступен `appointment.getAppointmentsByClientIdAndPeriod(clientId, from, to, context, meta)`.
 
 Пример: получить ближайшую запись и построить план обслуживания:
 

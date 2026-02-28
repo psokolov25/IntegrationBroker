@@ -68,6 +68,16 @@ public class MedicalGroovyAdapter extends GroovyObjectSupport {
         return getPatient(req, meta);
     }
 
+
+    /**
+     * Упрощённый helper: получить пациента по patientId.
+     */
+    public MedicalModels.MedicalOutcome<MedicalModels.Patient> getPatientByPatientId(String patientId, Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", java.util.List.of(java.util.Map.of("type", "patientId", "value", patientId)));
+        return getPatient(req, meta);
+    }
+
     /**
      * Получить предстоящие услуги/этапы.
      */
@@ -91,6 +101,17 @@ public class MedicalGroovyAdapter extends GroovyObjectSupport {
         return getUpcomingServices(req, meta);
     }
 
+
+    /**
+     * Упрощённый helper: получить предстоящие услуги только по ключам.
+     */
+    public MedicalModels.MedicalOutcome<java.util.List<MedicalModels.UpcomingService>> getUpcomingServicesByKeys(Object keys,
+                                                                                                                  Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", keys);
+        return getUpcomingServices(req, meta);
+    }
+
     /**
      * Собрать routing context.
      */
@@ -102,6 +123,47 @@ public class MedicalGroovyAdapter extends GroovyObjectSupport {
         MedicalModels.BuildRoutingContextRequest req = convert(request, MedicalModels.BuildRoutingContextRequest.class,
                 "Некорректный запрос buildRoutingContext: ожидается Map/JSON с полями keys/patientId/context");
         return medicalService.buildRoutingContext(req, metaMap(meta));
+    }
+
+
+    /**
+     * Упрощённый helper: собрать routing context из patientId/keys/context без ручной сборки request.
+     */
+    public MedicalModels.MedicalOutcome<MedicalModels.MedicalRoutingContext> buildRoutingContextSimple(String patientId,
+                                                                                                         Object keys,
+                                                                                                         Object context,
+                                                                                                         Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("patientId", patientId);
+        req.put("keys", keys);
+        req.put("context", context);
+        return buildRoutingContext(req, meta);
+    }
+
+
+    /**
+     * Упрощённый helper: собрать routing context только по patientId.
+     */
+    public MedicalModels.MedicalOutcome<MedicalModels.MedicalRoutingContext> buildRoutingContextByPatientId(String patientId,
+                                                                                                              Object context,
+                                                                                                              Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("patientId", patientId);
+        req.put("context", context);
+        return buildRoutingContext(req, meta);
+    }
+
+
+    /**
+     * Упрощённый helper: получить предстоящие услуги по patientId и branchId.
+     */
+    public MedicalModels.MedicalOutcome<java.util.List<MedicalModels.UpcomingService>> getUpcomingServicesByPatientAndBranch(String patientId,
+                                                                                                                             String branchId,
+                                                                                                                             Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("patientId", patientId);
+        req.put("context", branchId == null ? java.util.Map.of() : java.util.Map.of("branchId", branchId));
+        return getUpcomingServices(req, meta);
     }
 
     private <T> T convert(Object raw, Class<T> clazz, String message) {

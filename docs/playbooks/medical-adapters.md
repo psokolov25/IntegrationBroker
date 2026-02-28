@@ -72,7 +72,12 @@
 
 Для коротких flow можно использовать helper `medical.getPatientByKeys(keys, meta)` без ручной сборки полного request.
 Для SNILS-first сценариев есть `medical.getPatientBySnils(snils, meta)` с автосборкой ключа `snils`.
+Для patientId-first сценариев доступен helper `medical.getPatientByPatientId(patientId, meta)`.
 Также доступен helper `medical.getUpcomingServicesByPatient(patientId, meta)` для запроса по известному patientId.
+Для patient+branch сценария есть helper `medical.getUpcomingServicesByPatientAndBranch(patientId, branchId, meta)`.
+Для key-only сценариев есть `medical.getUpcomingServicesByKeys(keys, meta)`.
+Для сокращённого формирования medical context можно использовать `medical.buildRoutingContextSimple(patientId, keys, context, meta)`.
+Для patientId-only сценария есть `medical.buildRoutingContextByPatientId(patientId, context, meta)`.
 
 Пример precheck:
 

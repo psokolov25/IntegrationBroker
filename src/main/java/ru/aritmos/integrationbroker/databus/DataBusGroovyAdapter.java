@@ -76,9 +76,167 @@ public class DataBusGroovyAdapter {
         return doCall(eff, cfg, destination, sendToOtherBus, path, body, sourceMessageId, correlationId, idempotencyKey, null, null, true);
     }
 
+
     /**
-     * Прототип DataBus request с метаданными трассировки.
+     * Каноническая публикация события VISIT_CREATE с минимальным payload контрактом.
      */
+    public long publishVisitCreate(String destination,
+                                   String branchId,
+                                   String entryPointId,
+                                   List<String> serviceIds,
+                                   Map<String, String> parameters,
+                                   boolean printTicket,
+                                   String segmentationRuleId,
+                                   String sourceMessageId,
+                                   String correlationId,
+                                   String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("branchId", safeNullable(branchId));
+        payload.put("entryPointId", safeNullable(entryPointId));
+        payload.put("serviceIds", serviceIds == null ? List.of() : List.copyOf(serviceIds));
+        payload.put("parameters", parameters == null ? Map.of() : Map.copyOf(parameters));
+        payload.put("printTicket", printTicket);
+        payload.put("segmentationRuleId", safeNullable(segmentationRuleId));
+        return publishEvent("VISIT_CREATE", destination, null, payload, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+
+
+    /**
+     * Каноническая публикация события VISIT_UPDATED (например, после updateVisitParameters).
+     */
+    public long publishVisitUpdated(String destination,
+                                    String visitId,
+                                    Map<String, String> parameters,
+                                    String sourceMessageId,
+                                    String correlationId,
+                                    String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("visitId", safeNullable(visitId));
+        payload.put("parameters", parameters == null ? Map.of() : Map.copyOf(parameters));
+        return publishEvent("VISIT_UPDATED", destination, null, payload, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+
+    /**
+     * Каноническая публикация события VISIT_CALLED для service-point цикла.
+     */
+    public long publishVisitCalled(String destination,
+                                   String branchId,
+                                   String servicePointId,
+                                   String visitId,
+                                   String sourceMessageId,
+                                   String correlationId,
+                                   String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("branchId", safeNullable(branchId));
+        payload.put("servicePointId", safeNullable(servicePointId));
+        payload.put("visitId", safeNullable(visitId));
+        return publishEvent("VISIT_CALLED", destination, null, payload, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+
+    /**
+     * Каноническая публикация события VISIT_POSTPONED для service-point цикла.
+     */
+    public long publishVisitPostponed(String destination,
+                                      String branchId,
+                                      String servicePointId,
+                                      String visitId,
+                                      String sourceMessageId,
+                                      String correlationId,
+                                      String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("branchId", safeNullable(branchId));
+        payload.put("servicePointId", safeNullable(servicePointId));
+        payload.put("visitId", safeNullable(visitId));
+        return publishEvent("VISIT_POSTPONED", destination, null, payload, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+
+    /**
+     * Каноническая публикация события AUTO_CALL_STATE_CHANGED.
+     */
+    public long publishAutoCallStateChanged(String destination,
+                                            String branchId,
+                                            String servicePointId,
+                                            boolean enabled,
+                                            String sourceMessageId,
+                                            String correlationId,
+                                            String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("branchId", safeNullable(branchId));
+        payload.put("servicePointId", safeNullable(servicePointId));
+        payload.put("enabled", enabled);
+        return publishEvent("AUTO_CALL_STATE_CHANGED", destination, null, payload, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+
+    /**
+     * Каноническая публикация события SERVICE_POINT_MODE_CHANGED.
+     */
+    public long publishServicePointModeChanged(String destination,
+                                               String branchId,
+                                               String mode,
+                                               Boolean entered,
+                                               String sourceMessageId,
+                                               String correlationId,
+                                               String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("branchId", safeNullable(branchId));
+        payload.put("mode", safeNullable(mode));
+        payload.put("entered", entered);
+        return publishEvent("SERVICE_POINT_MODE_CHANGED", destination, null, payload, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Каноническая публикация события BRANCH_STATE_SNAPSHOT.
+     */
+    public long publishBranchStateSnapshot(String destination,
+                                           String branchId,
+                                           Object state,
+                                           String sourceMessageId,
+                                           String correlationId,
+                                           String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("branchId", safeNullable(branchId));
+        payload.put("state", state);
+        return publishEvent("BRANCH_STATE_SNAPSHOT", destination, null, payload, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Каноническая route-публикация события VISIT_CREATE.
+     */
+    public long publishVisitCreateRoute(String destination,
+                                        List<String> dataBusUrls,
+                                        String branchId,
+                                        String entryPointId,
+                                        List<String> serviceIds,
+                                        Map<String, String> parameters,
+                                        boolean printTicket,
+                                        String segmentationRuleId,
+                                        Boolean sendToOtherBus,
+                                        String sourceMessageId,
+                                        String correlationId,
+                                        String idempotencyKey) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("branchId", safeNullable(branchId));
+        payload.put("entryPointId", safeNullable(entryPointId));
+        payload.put("serviceIds", serviceIds == null ? List.of() : List.copyOf(serviceIds));
+        payload.put("parameters", parameters == null ? Map.of() : Map.copyOf(parameters));
+        payload.put("printTicket", printTicket);
+        payload.put("segmentationRuleId", safeNullable(segmentationRuleId));
+        return publishEventRoute(
+                "VISIT_CREATE",
+                destination,
+                sendToOtherBus,
+                dataBusUrls,
+                payload,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+    }
 
     /**
      * Публикация события в DataBus с маршрутизацией на список внешних шин.
@@ -98,7 +256,7 @@ public class DataBusGroovyAdapter {
                 .replace("{type}", safe(type, "UNKNOWN"));
 
         Map<String, Object> routeBody = Map.of(
-                "dataBusUrls", dataBusUrls == null ? List.of() : dataBusUrls,
+                "dataBusUrls", normalizeUrls(dataBusUrls),
                 "body", body
         );
 
@@ -205,6 +363,33 @@ public class DataBusGroovyAdapter {
                              Object response,
                              String correlationId) {
         return sendResponse(destination, null, status, message, response, null, correlationId, null);
+    }
+
+
+    /**
+     * Типовой helper: отправить успешный response (200, "OK").
+     */
+    public long sendResponseOk(String destination,
+                               Object response,
+                               String sourceMessageId,
+                               String correlationId,
+                               String idempotencyKey) {
+        return sendResponse(destination, null, 200, "OK", response, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Типовой helper: отправить ошибочный response с кодом и сообщением.
+     */
+    public long sendResponseError(String destination,
+                                  Integer status,
+                                  String message,
+                                  Object response,
+                                  String sourceMessageId,
+                                  String correlationId,
+                                  String idempotencyKey) {
+        int resolvedStatus = status == null || status < 400 ? 500 : status;
+        String resolvedMessage = safeNullable(message) == null ? "ERROR" : message.trim();
+        return sendResponse(destination, null, resolvedStatus, resolvedMessage, response, sourceMessageId, correlationId, idempotencyKey);
     }
 
     public long sendResponse(String destination,
@@ -320,6 +505,21 @@ public class DataBusGroovyAdapter {
         if (requestId != null) {
             headers.put("X-Request-Id", requestId);
         }
+    }
+
+
+    private static List<String> normalizeUrls(List<String> dataBusUrls) {
+        if (dataBusUrls == null || dataBusUrls.isEmpty()) {
+            return List.of();
+        }
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        for (String u : dataBusUrls) {
+            String t = safeNullable(u);
+            if (t != null) {
+                out.add(t);
+            }
+        }
+        return List.copyOf(out);
     }
 
     private static String pathOrDefault(String path, String def) {

@@ -81,6 +81,11 @@
 В Groovy также доступен helper `crm.findCustomerByKeys(keys, meta)`, если нужен быстрый вызов без сборки полного request.
 Для phone-first сценариев можно использовать `crm.findCustomerByPhone(phone, meta)` — он сам формирует key типа `phone`.
 Дополнительно можно использовать `crm.createServiceCaseSimple(title, customerCrmId, channel, meta)` для коротких case-flow.
+Для task-flow есть helper `crm.createTaskSimple(title, customerCrmId, assignee, meta)` — быстрый путь создать задачу по клиенту без ручной сборки request.
+Для note-flow есть helper `crm.appendNoteSimple(entityType, entityId, text, meta)` — быстрый способ добавить заметку к сущности.
+Для lead-flow есть helper `crm.createLeadSimple(title, customerCrmId, attributes, meta)`.
+Для case+note сценария доступен helper `crm.createServiceCaseWithNoteSimple(title, customerCrmId, channel, noteText, meta)`.
+Для task+note сценария доступен helper `crm.createTaskWithNoteSimple(title, customerCrmId, assignee, noteText, meta)`.
 
 Пример:
 
