@@ -26,7 +26,9 @@ Integration Broker предоставляет alias `branch` (см. `BranchResol
 def br = branch.resolve(input)
 meta.branchId = br.branchId
 if (meta.branchId == null) {
-  throw new RuntimeException('Не удалось определить отделение: ' + br.strategy)
+  // fallback вариант
+  br = branch.resolveOrDefault(input, "DEFAULT_BRANCH")
+  meta.branchId = br.branchId
 }
 ```
 
@@ -44,18 +46,29 @@ if (meta.branchId == null) {
 Integration Broker экспортирует alias `visit`:
 
 - `visit.servicesCatalog(branchId)` — получить каталог услуг отделения (для сопоставления)
+- `visit.servicesCatalogRest(args, meta)` — получить каталог услуг через REST helper с поддержкой headers/meta (`/entrypoint/branches/{branchId}/services/catalog`)
 - `visitManager.getServicesCatalog(target, branchId, headers, sourceMessageId, correlationId, idempotencyKey)` — Java API вариант каталога услуг с trace/meta заголовками
 - `visit.matchServiceIdsByNames(branchId, names, allowContains)` — сопоставить внешние имена процедур со `serviceIds`
 - `visit.createVisitRest(args, meta)` — создать визит через REST (с fallback в REST outbox при ошибке)
+- `visit.createVisitFromEventRest(args, meta)` — создать визит по каноническому payload события (`branchId`, `entryPointId`, `serviceIds`, `parameters`, `printTicket`, `segmentationRuleId`)
 - `visit.createVirtualVisitRest(args, meta)` — создать виртуальный визит (service-point сценарий)
+- `visit.createVirtualVisitFromEventRest(args, meta)` — создать виртуальный визит из event-подобного payload (`branchId`, `servicePointId`, `serviceIds`)
 - `visit.createVisitOnPrinterRest(args, meta)` — создать визит через выбранный принтер (services/parameters)
+- `visit.updateVisitParametersRest(args, meta)` — обновить параметры существующего визита (`PUT /entrypoint/branches/{branchId}/visits/{visitId}`)
 - `visitManager.createVisitFromEvent(target, payload, headers, sourceMessageId, correlationId, idempotencyKey)` — Java API helper для прямого маппинга payload события `VISIT_CREATE` в REST-вызов VisitManager
 - `visit.callNextVisitRest(args, meta)` — вызвать следующего посетителя на service point
+- `visit.callNextVisitFromEventRest(args, meta)` — вызвать следующего посетителя по event-подобному payload (`branchId`, `servicePointId`, `autoCallEnabled`)
 - `visit.enterServicePointModeRest(args, meta)` — вход сотрудника в service-point режим (в т.ч. с `sid`)
+- `visit.enterServicePointModeFromEventRest(args, meta)` — вход в service-point режим по event-подобному payload
 - `visit.exitServicePointModeRest(args, meta)` — выход сотрудника из service-point режима (в т.ч. с `sid`)
+- `visit.exitServicePointModeFromEventRest(args, meta)` — выход из service-point режима по event-подобному payload
 - `visit.startAutoCallRest(args, meta)` — включение авто-вызова на service point
+- `visit.startAutoCallFromEventRest(args, meta)` — включение авто-вызова по event-подобному payload (`branchId`, `servicePointId`)
 - `visit.cancelAutoCallRest(args, meta)` — выключение авто-вызова на service point
 - `visit.postponeCurrentVisitRest(args, meta)` — отложить текущий визит на service point
+- `visit.getBranchStateRest(args, meta)` — получить состояние отделения (`/managementinformation/branches/{id}`)
+- `visit.getBranchesStateRest(args, meta)` — получить картину отделений (`/managementinformation/branches`, опционально `userName`)
+- `visit.getBranchesTinyRest(args, meta)` — получить краткую сводку отделений (`/managementinformation/branches/tiny`)
 
 Пример вызова создания визита:
 
@@ -111,9 +124,17 @@ def body = [
 output.dataBusOutboxId = bus.publishEvent('VISIT_CREATE', 'visitmanager', body)
 ```
 
-Для route-варианта (fan-out в несколько внешних шин) можно использовать `dataBus.publishEventRoute(...)` на Java API или `bus.publishEventRoute(...)` в Groovy.
+Для route-варианта (fan-out в несколько внешних шин) можно использовать `dataBus.publishEventRoute(...)` на Java API или `bus.publishEventRoute(...)` в Groovy. Route helper в Groovy фильтрует пустые/blank URL в `dataBusUrls`, чтобы не отправлять мусор в payload.
 
 Для унифицированной отправки канонического события создания визита есть Java helper `dataBus.publishVisitCreate(...)`: он собирает payload (`branchId`, `entryPointId`, `serviceIds`, `parameters`, `printTicket`, `segmentationRuleId`) и публикует событие типа `VISIT_CREATE`.
+В Groovy для того же сценария доступен helper `bus.publishVisitCreate(destination, branchId, entryPointId, serviceIds, parameters, printTicket, segmentationRuleId, sourceMessageId, correlationId, idempotencyKey)`.
+Для route-публикации канонического payload есть `bus.publishVisitCreateRoute(destination, dataBusUrls, branchId, entryPointId, serviceIds, parameters, printTicket, segmentationRuleId, sendToOtherBus, sourceMessageId, correlationId, idempotencyKey)`.
+Для событий обновления параметров визита доступен helper `bus.publishVisitUpdated(destination, visitId, parameters, sourceMessageId, correlationId, idempotencyKey)`.
+Для service-point вызова посетителя доступен helper `bus.publishVisitCalled(destination, branchId, servicePointId, visitId, sourceMessageId, correlationId, idempotencyKey)`.
+Для service-point отложенного визита доступен helper `bus.publishVisitPostponed(destination, branchId, servicePointId, visitId, sourceMessageId, correlationId, idempotencyKey)`.
+Для переключения авто-вызова доступен helper `bus.publishAutoCallStateChanged(destination, branchId, servicePointId, enabled, sourceMessageId, correlationId, idempotencyKey)`.
+Для смены режима service-point доступен helper `bus.publishServicePointModeChanged(destination, branchId, mode, entered, sourceMessageId, correlationId, idempotencyKey)`.
+Для публикации снимка состояния отделения доступен helper `bus.publishBranchStateSnapshot(destination, branchId, state, sourceMessageId, correlationId, idempotencyKey)`.
 Для route-сценариев доступен `dataBus.publishVisitCreateRoute(...)`, который отправляет тот же канонический payload через `/events/types/{type}/route`.
 
 ```groovy
@@ -137,6 +158,8 @@ output.routeOutboxId = bus.publishEventRoute(
 - `bus.sendRequest(function, destination, sendToOtherBus, params, correlationId)`
 - `bus.sendResponse(destination, status, message, response)`
 - `bus.sendResponse(destination, status, message, response, correlationId)`
+- `bus.sendResponseOk(destination, response, sourceMessageId, correlationId, idempotencyKey)`
+- `bus.sendResponseError(destination, status, message, response, sourceMessageId, correlationId, idempotencyKey)`
 
 ### Заголовки DataBus
 

@@ -53,6 +53,109 @@ public class VisitManagerGroovyAdapter {
     }
 
     /**
+     * Получить снимок состояния отделения endpoint
+     * {@code GET /managementinformation/branches/{id}}.
+     */
+    public Map<String, Object> getBranchStateRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "GET",
+                "/managementinformation/branches/" + urlEncode(branchId),
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+
+    /**
+     * Получить каталог услуг отделения через универсальный REST вызов
+     * с поддержкой headers/meta (trace/idempotency).
+     */
+    public Map<String, Object> servicesCatalogRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "GET",
+                "/entrypoint/branches/" + urlEncode(branchId) + "/services/catalog",
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+
+    /**
+     * Создать визит по payload события (канонический формат VISIT_CREATE) через REST.
+     */
+    public Map<String, Object> createVisitFromEventRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String entryPointId = safeStr(m.get("entryPointId"));
+        List<String> serviceIds = toStringList(m.get("serviceIds"));
+        Map<String, String> parameters = toStringMap(m.get("parameters"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+        boolean printTicket = Boolean.TRUE.equals(m.get("printTicket"));
+        String segmentationRuleId = safeStr(m.get("segmentationRuleId"));
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (serviceIds.isEmpty()) {
+            return invalidArgument("serviceIds");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        VisitManagerClient.CallResult r = client.createVisitWithParametersRest(
+                branchId,
+                entryPointId,
+                serviceIds,
+                parameters,
+                printTicket,
+                segmentationRuleId,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+
+        return toMap(r);
+    }
+
+    /**
      * Создать визит через REST API VisitManager.
      *
      * <p>Аргументы передаются как Map (удобно для Groovy):
@@ -107,6 +210,24 @@ public class VisitManagerGroovyAdapter {
         );
 
         return toMap(r);
+    }
+
+
+    /**
+     * Создать виртуальный визит по event-подобному payload.
+     *
+     * <p>Ожидаемые поля: {@code branchId}, {@code servicePointId}, {@code serviceIds},
+     * опционально {@code headers}.
+     */
+    public Map<String, Object> createVirtualVisitFromEventRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        Map<String, Object> mapped = new HashMap<>();
+        mapped.put("branchId", m.get("branchId"));
+        mapped.put("servicePointId", m.get("servicePointId"));
+        mapped.put("serviceIds", m.get("serviceIds"));
+        mapped.put("headers", m.get("headers"));
+        return createVirtualVisitRest(mapped, meta);
     }
 
     /**
@@ -202,6 +323,24 @@ public class VisitManagerGroovyAdapter {
         return toMap(r);
     }
 
+
+    /**
+     * Вызвать следующего посетителя по event-подобному payload.
+     *
+     * <p>Ожидаемые поля: {@code branchId}, {@code servicePointId},
+     * опционально {@code autoCallEnabled}, {@code headers}.
+     */
+    public Map<String, Object> callNextVisitFromEventRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        Map<String, Object> mapped = new HashMap<>();
+        mapped.put("branchId", m.get("branchId"));
+        mapped.put("servicePointId", m.get("servicePointId"));
+        mapped.put("autoCallEnabled", m.get("autoCallEnabled"));
+        mapped.put("headers", m.get("headers"));
+        return callNextVisitRest(mapped, meta);
+    }
+
     /**
      * Вызвать следующего посетителя endpoint
      * {@code POST /servicepoint/branches/{branchId}/servicePoints/{servicePointId}/call}.
@@ -239,6 +378,40 @@ public class VisitManagerGroovyAdapter {
                 idempotencyKey
         );
         return toMap(r);
+    }
+
+
+    /**
+     * Войти в service-point режим по event-подобному payload.
+     *
+     * <p>Ожидаемые поля: {@code branchId}, опционально {@code mode},
+     * {@code autoCallEnabled}, {@code sid}, {@code headers}.
+     */
+    public Map<String, Object> enterServicePointModeFromEventRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        Map<String, Object> mapped = new HashMap<>();
+        mapped.put("branchId", m.get("branchId"));
+        mapped.put("mode", m.get("mode"));
+        mapped.put("autoCallEnabled", m.get("autoCallEnabled"));
+        mapped.put("sid", m.get("sid"));
+        mapped.put("headers", m.get("headers"));
+        return enterServicePointModeRest(mapped, meta);
+    }
+
+    /**
+     * Включить auto-call по event-подобному payload.
+     *
+     * <p>Ожидаемые поля: {@code branchId}, {@code servicePointId}, опционально {@code headers}.
+     */
+    public Map<String, Object> startAutoCallFromEventRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        Map<String, Object> mapped = new HashMap<>();
+        mapped.put("branchId", m.get("branchId"));
+        mapped.put("servicePointId", m.get("servicePointId"));
+        mapped.put("headers", m.get("headers"));
+        return startAutoCallRest(mapped, meta);
     }
 
     /**
@@ -286,6 +459,25 @@ public class VisitManagerGroovyAdapter {
                 idempotencyKey
         );
         return toMap(r);
+    }
+
+
+    /**
+     * Выйти из service-point режима по event-подобному payload.
+     *
+     * <p>Ожидаемые поля: {@code branchId}, опционально {@code isForced},
+     * {@code reason}, {@code sid}, {@code headers}.
+     */
+    public Map<String, Object> exitServicePointModeFromEventRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        Map<String, Object> mapped = new HashMap<>();
+        mapped.put("branchId", m.get("branchId"));
+        mapped.put("isForced", m.get("isForced"));
+        mapped.put("reason", m.get("reason"));
+        mapped.put("sid", m.get("sid"));
+        mapped.put("headers", m.get("headers"));
+        return exitServicePointModeRest(mapped, meta);
     }
 
     /**
@@ -444,6 +636,100 @@ public class VisitManagerGroovyAdapter {
                 "PUT",
                 path,
                 null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+
+    /**
+     * Получить состояние отделений endpoint
+     * {@code GET /managementinformation/branches}.
+     *
+     * <p>Поддерживает опциональный query-параметр {@code userName}.
+     */
+    public Map<String, Object> getBranchesStateRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String userName = safeStr(m.get("userName"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        String path = "/managementinformation/branches";
+        if (userName != null) {
+            path += "?userName=" + urlEncode(userName);
+        }
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "GET",
+                path,
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+    /**
+     * Получить упрощенную сводку отделений endpoint
+     * {@code GET /managementinformation/branches/tiny}.
+     */
+    public Map<String, Object> getBranchesTinyRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "GET",
+                "/managementinformation/branches/tiny",
+                null,
+                headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toMap(r);
+    }
+
+
+    /**
+     * Обновить параметры визита endpoint
+     * {@code PUT /entrypoint/branches/{branchId}/visits/{visitId}}.
+     */
+    public Map<String, Object> updateVisitParametersRest(Object args, Map<String, Object> meta) {
+        Map<String, Object> m = (args instanceof Map<?, ?> mm) ? (Map<String, Object>) mm : Map.of();
+
+        String branchId = safeStr(m.get("branchId"));
+        String visitId = safeStr(m.get("visitId"));
+        Map<String, String> parameters = toStringMap(m.get("parameters"));
+        Map<String, String> headers = toStringMap(m.get("headers"));
+
+        if (branchId == null) {
+            return invalidArgument("branchId");
+        }
+        if (visitId == null) {
+            return invalidArgument("visitId");
+        }
+
+        String sourceMessageId = meta == null ? null : safeStr(meta.get("messageId"));
+        String correlationId = meta == null ? null : safeStr(meta.get("correlationId"));
+        String idempotencyKey = meta == null ? null : safeStr(meta.get("idempotencyKey"));
+
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "PUT",
+                "/entrypoint/branches/" + urlEncode(branchId) + "/visits/" + urlEncode(visitId),
+                parameters,
                 headers,
                 sourceMessageId,
                 correlationId,

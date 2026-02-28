@@ -132,6 +132,35 @@ public class BranchResolverGroovyAdapter {
         );
     }
 
+
+    /**
+     * Определить branchId, либо вернуть заданный default.
+     */
+    public Map<String, Object> resolveOrDefault(InboundEnvelope input, String defaultBranchId) {
+        Map<String, Object> resolved;
+        try {
+            resolved = resolve(input);
+        } catch (RuntimeException ex) {
+            resolved = Map.of();
+        }
+
+        Object rawBranchId = resolved == null ? null : resolved.get("branchId");
+        String branchId = rawBranchId == null ? null : safeTrim(String.valueOf(rawBranchId));
+        if (branchId != null) {
+            return resolved;
+        }
+
+        String fallback = safeTrim(defaultBranchId);
+        if (fallback == null) {
+            return resolved == null ? Map.of() : resolved;
+        }
+        return Map.of(
+                "branchId", fallback,
+                "strategy", "DEFAULT",
+                "details", "Использован default branchId"
+        );
+    }
+
     private static String readCameraName(InboundEnvelope input) {
         if (input == null || input.sourceMeta() == null) {
             return null;

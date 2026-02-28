@@ -207,6 +207,41 @@ Integration Broker — универсальный интеграционный �
   - `docs/playbooks/visitmanager-and-databus.md`.
 
 
+## Итерация 13: Frontend Workbench (React) + Groovy tooling/emulation
+
+- **Tooling API для IDE-сценариев**:
+  - `POST /admin/groovy-tooling/validate` — компиляционная проверка Groovy-скриптов;
+  - `POST /admin/groovy-tooling/emulate` — отладочный запуск с mock-эмуляцией alias и call trace.
+- **Эмуляция интеграций**:
+  - mock-ответы задаются по ключу `alias.method` (`crm.findCustomerByPhone`, `visit.createVisitRest` и т.д.);
+  - возвращается журнал вызовов (`calls`) и debug-сообщения (`debugMessages`) для UI.
+- **Новый playbook**:
+  - `docs/playbooks/react-frontend-workbench.md` — дорожная карта React приложения, IDE-функций и эмуляции сервисов.
+
+## Итерация 14: Keycloak security + RBAC + optional anonymous
+
+- Добавлен playbook `docs/playbooks/auth-keycloak-and-access.md`:
+  - inbound auth внешних сервисов к IB через Keycloak (OIDC/JWT),
+  - outbound auth IB к службам (и roadmap для OAuth2 client credentials),
+  - role-based access control для REST API,
+  - optional anonymous mode для выбранных endpoint.
+- Обновлён playbook React Workbench с требованиями role-aware UI и Keycloak login.
+
+## Итерация 15: Frontend playbook расширен до полного контура settings + monitoring
+
+- `docs/playbooks/react-frontend-workbench.md` дополнен полным набором возможностей фронтенда:
+  - Settings Center (runtime config, connectors, auth/security policies, change management),
+  - Monitoring & Observability dashboards (ingress/idempotency/DLQ/outbox/dependency health/security),
+  - операционные действия (replay/retry/drill-down/export sanitized incident),
+  - алертинг и интеграция с каналами уведомлений.
+
+## Итерация 16: Формы статических и динамических параметров в Frontend Workbench
+
+- Playbook фронтенда дополнен требованиями по Form Engine:
+  - статические формы (фиксированные контракты),
+  - динамические формы (schema-driven + conditional fields),
+  - применение для настроек, эмуляции, flow-параметров и операционных действий.
+
 ## Операционный промт для Codex
 
 Для постановки задач в Codex используйте шаблон: `docs/playbooks/codex-prompt-template.md`.

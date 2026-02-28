@@ -75,6 +75,27 @@ public class AppointmentGroovyAdapter extends GroovyObjectSupport {
         return service.getAvailableSlots(req, metaMap(meta));
     }
 
+
+    /**
+     * Упрощённый helper: получить доступные слоты по базовым параметрам.
+     */
+    public AppointmentModels.AppointmentOutcome<java.util.List<AppointmentModels.Slot>> getAvailableSlotsSimple(String serviceCode,
+                                                                                                                  String locationId,
+                                                                                                                  java.time.Instant from,
+                                                                                                                  java.time.Instant to,
+                                                                                                                  Object context,
+                                                                                                                  Object meta) {
+        Map<String, Object> ctx = context instanceof Map<?, ?> m ? metaMap(m) : Map.of();
+        AppointmentModels.GetAvailableSlotsRequest req = new AppointmentModels.GetAvailableSlotsRequest(
+                serviceCode,
+                locationId,
+                from,
+                to,
+                ctx
+        );
+        return service.getAvailableSlots(req, metaMap(meta));
+    }
+
     public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> bookSlot(Object request) {
         return bookSlot(request, Map.of());
     }
@@ -93,6 +114,37 @@ public class AppointmentGroovyAdapter extends GroovyObjectSupport {
         AppointmentModels.CancelAppointmentRequest req = convert(request, AppointmentModels.CancelAppointmentRequest.class,
                 "Некорректный запрос cancelAppointment: ожидается Map/JSON с полями appointmentId/reason/context");
         return service.cancelAppointment(req, metaMap(meta));
+    }
+
+
+    /**
+     * Упрощённый helper: забронировать слот по минимальному набору полей.
+     */
+    public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> bookSlotSimple(String slotId,
+                                                                                               String serviceCode,
+                                                                                               Object keys,
+                                                                                               Object context,
+                                                                                               Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("slotId", slotId);
+        req.put("serviceCode", serviceCode);
+        req.put("keys", keys);
+        req.put("context", context);
+        return bookSlot(req, meta);
+    }
+
+    /**
+     * Упрощённый helper: отменить запись по appointmentId.
+     */
+    public AppointmentModels.AppointmentOutcome<Boolean> cancelAppointmentSimple(String appointmentId,
+                                                                                  String reason,
+                                                                                  Object context,
+                                                                                  Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("appointmentId", appointmentId);
+        req.put("reason", reason);
+        req.put("context", context);
+        return cancelAppointment(req, meta);
     }
 
     public AppointmentModels.AppointmentOutcome<AppointmentModels.QueuePlan> buildQueuePlan(Object request) {
@@ -137,6 +189,50 @@ public class AppointmentGroovyAdapter extends GroovyObjectSupport {
         java.util.Map<String, Object> req = new java.util.HashMap<>();
         req.put("keys", java.util.List.of(java.util.Map.of("type", "clientId", "value", clientId)));
         return getNearestAppointment(req, meta);
+    }
+
+
+    /**
+     * Упрощённый helper: получить ближайшую запись по clientId и branchId.
+     */
+    public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> getNearestAppointmentSimple(String clientId,
+                                                                                                            String branchId,
+                                                                                                            Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", java.util.List.of(java.util.Map.of("type", "clientId", "value", clientId)));
+        req.put("context", branchId == null ? java.util.Map.of() : java.util.Map.of("branchId", branchId));
+        return getNearestAppointment(req, meta);
+    }
+
+
+    /**
+     * Упрощённый helper: получить список записей по clientId.
+     */
+    public AppointmentModels.AppointmentOutcome<java.util.List<AppointmentModels.Appointment>> getAppointmentsByClientId(String clientId,
+                                                                                                                          Object context,
+                                                                                                                          Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", java.util.List.of(java.util.Map.of("type", "clientId", "value", clientId)));
+        req.put("context", context);
+        return getAppointments(req, meta);
+    }
+
+
+    /**
+     * Упрощённый helper: получить записи по clientId за период.
+     */
+    public AppointmentModels.AppointmentOutcome<java.util.List<AppointmentModels.Appointment>> getAppointmentsByClientIdAndPeriod(String clientId,
+                                                                                                                                   java.time.Instant from,
+                                                                                                                                   java.time.Instant to,
+                                                                                                                                   Object context,
+                                                                                                                                   Object meta) {
+        AppointmentModels.GetAppointmentsRequest req = new AppointmentModels.GetAppointmentsRequest(
+                java.util.List.of(new AppointmentModels.BookingKey("clientId", clientId, java.util.Map.of())),
+                from,
+                to,
+                context instanceof Map<?, ?> m ? metaMap(m) : java.util.Map.of()
+        );
+        return service.getAppointments(req, metaMap(meta));
     }
 
     private <T> T convert(Object raw, Class<T> clazz, String message) {
