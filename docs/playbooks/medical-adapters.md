@@ -71,6 +71,7 @@
 Алиас `medical` доступен в Groovy, если в проекте подключён бин `MedicalGroovyAdapter`.
 
 Для коротких flow можно использовать helper `medical.getPatientByKeys(keys, meta)` без ручной сборки полного request.
+Для SNILS-first сценариев есть `medical.getPatientBySnils(snils, meta)` с автосборкой ключа `snils`.
 Также доступен helper `medical.getUpcomingServicesByPatient(patientId, meta)` для запроса по известному patientId.
 
 Пример precheck:

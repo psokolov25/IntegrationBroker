@@ -11,6 +11,121 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DataBusApiImplTest {
 
+
+
+
+
+
+
+    @Test
+    void sendResponseOk_shouldUseStatus200AndMessageOk() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.sendResponseOk(
+                "target-1",
+                "crm",
+                Map.of("accepted", true),
+                "src-ok-1",
+                "corr-ok-1",
+                "idem-ok-1"
+        );
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals(200, envelope.get("status"));
+        assertEquals("OK", envelope.get("message"));
+    }
+
+    @Test
+    void sendResponseError_shouldFallbackTo500AndErrorMessage() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.sendResponseError(
+                "target-1",
+                "crm",
+                null,
+                "   ",
+                Map.of("accepted", false),
+                "src-err-1",
+                "corr-err-1",
+                "idem-err-1"
+        );
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals(500, envelope.get("status"));
+        assertEquals("ERROR", envelope.get("message"));
+    }
+    @Test
+    void publishVisitCreateRoute_shouldBuildRouteEnvelopeWithVisitCreateType() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishVisitCreateRoute(
+                "target-r1",
+                "visitmanager",
+                List.of("http://bus-a", "http://bus-b"),
+                "BR-10",
+                "EP-10",
+                List.of("S10"),
+                Map.of("segment", "A"),
+                true,
+                "seg-10",
+                true,
+                "src-r1",
+                "corr-r1",
+                "idem-r1"
+        );
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals("VISIT_CREATE", envelope.get("type"));
+        assertEquals(List.of("http://bus-a", "http://bus-b"), envelope.get("routeDataBusUrls"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) envelope.get("payload");
+        assertEquals("BR-10", payload.get("branchId"));
+        assertEquals(true, payload.get("printTicket"));
+
+        assertEquals("VISIT_CREATE", stub.lastType);
+        assertEquals(List.of("http://bus-a", "http://bus-b"), stub.lastDataBusUrls);
+        assertEquals(true, stub.lastSendToOtherBus);
+    }
+    @Test
+    void publishVisitCreate_shouldBuildCanonicalVisitCreatePayload() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishVisitCreate(
+                "target-1",
+                "visitmanager",
+                "BR-1",
+                "EP-1",
+                List.of("S1", "S2"),
+                Map.of("segment", "VIP"),
+                false,
+                null,
+                "src-vc-1",
+                "corr-vc-1",
+                "idem-vc-1"
+        );
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        assertEquals("VISIT_CREATE", envelope.get("type"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) envelope.get("payload");
+        assertEquals("BR-1", payload.get("branchId"));
+        assertEquals("EP-1", payload.get("entryPointId"));
+        assertEquals(List.of("S1", "S2"), payload.get("serviceIds"));
+        assertEquals(Map.of("segment", "VIP"), payload.get("parameters"));
+        assertEquals(false, payload.get("printTicket"));
+
+        assertEquals("VISIT_CREATE", stub.lastType);
+        assertEquals("visitmanager", stub.lastDestination);
+    }
     @Test
     void publishEvent_shouldReturnCanonicalEnvelope() {
         StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();

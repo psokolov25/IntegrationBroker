@@ -128,6 +128,17 @@ public class AppointmentGroovyAdapter extends GroovyObjectSupport {
         return getNearestAppointment(req, meta);
     }
 
+
+    /**
+     * Упрощённый helper: получить ближайшую запись по clientId.
+     */
+    public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> getNearestAppointmentByClientId(String clientId,
+                                                                                                                Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", java.util.List.of(java.util.Map.of("type", "clientId", "value", clientId)));
+        return getNearestAppointment(req, meta);
+    }
+
     private <T> T convert(Object raw, Class<T> clazz, String message) {
         if (raw == null) {
             throw new IllegalArgumentException(message);

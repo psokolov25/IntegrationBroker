@@ -10,6 +10,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class MedicalGroovyAdapterTest {
 
+
+
+    @Test
+    void getPatientBySnils_shouldBuildSnilsKeyAndDelegate() {
+        StubMedicalService service = new StubMedicalService();
+        MedicalGroovyAdapter adapter = new MedicalGroovyAdapter(service, new ObjectMapper());
+
+        MedicalModels.MedicalOutcome<MedicalModels.Patient> out = adapter.getPatientBySnils(
+                "112-233-445 95",
+                Map.of("channel", "mobile")
+        );
+
+        assertEquals(true, out.success());
+        assertEquals("snils", service.lastRequest.keys().get(0).type());
+        assertEquals("112-233-445 95", service.lastRequest.keys().get(0).value());
+        assertEquals("mobile", service.lastMeta.get("channel"));
+    }
     @Test
     void getUpcomingServicesByPatient_shouldBuildRequestAndDelegate() {
         StubMedicalService service = new StubMedicalService();

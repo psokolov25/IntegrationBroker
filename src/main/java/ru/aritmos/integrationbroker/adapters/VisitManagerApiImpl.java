@@ -106,10 +106,28 @@ public class VisitManagerApiImpl implements VisitManagerApi {
 
     @Override
     public Map<String, Object> getServicesCatalog(String target, String branchId) {
+        return getServicesCatalog(target, branchId, Map.of(), null, null, null);
+    }
+
+    @Override
+    public Map<String, Object> getServicesCatalog(String target,
+                                                  String branchId,
+                                                  Map<String, String> headers,
+                                                  String sourceMessageId,
+                                                  String correlationId,
+                                                  String idempotencyKey) {
         if (isBlank(branchId)) {
             return invalidArgument("branchId");
         }
-        VisitManagerClient.CallResult r = client.getServicesCatalog(branchId);
+        VisitManagerClient.CallResult r = client.callRestEndpoint(
+                "GET",
+                "/entrypoint/branches/" + urlEncodePathSegment(branchId) + "/services/catalog",
+                null,
+                normalizeHeaders(headers),
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
         return toResult(r);
     }
 
