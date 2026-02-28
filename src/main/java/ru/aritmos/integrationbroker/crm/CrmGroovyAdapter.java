@@ -66,6 +66,16 @@ public class CrmGroovyAdapter extends GroovyObjectSupport {
         return findCustomer(req, meta);
     }
 
+
+    /**
+     * Упрощённый helper: поиск клиента по телефону.
+     */
+    public CrmModels.CrmOutcome<CrmModels.CustomerCard> findCustomerByPhone(String phone, Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", java.util.List.of(java.util.Map.of("type", "phone", "value", phone)));
+        return findCustomer(req, meta);
+    }
+
     /**
      * Upsert клиента.
      */

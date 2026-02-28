@@ -11,6 +11,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class AppointmentGroovyAdapterTest {
 
+
+
+    @Test
+    void getNearestAppointmentByClientId_shouldBuildClientIdKey() {
+        StubAppointmentService service = new StubAppointmentService();
+        AppointmentGroovyAdapter adapter = new AppointmentGroovyAdapter(service, new ObjectMapper());
+
+        AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> out =
+                adapter.getNearestAppointmentByClientId("CLIENT-77", Map.of("channel", "mobile"));
+
+        assertEquals(true, out.success());
+        assertEquals("clientId", service.lastRequest.keys().get(0).type());
+        assertEquals("CLIENT-77", service.lastRequest.keys().get(0).value());
+        assertEquals("mobile", service.lastMeta.get("channel"));
+    }
     @Test
     void buildQueuePlanSimple_shouldBuildRequestAndDelegate() {
         StubAppointmentService service = new StubAppointmentService();

@@ -58,6 +58,16 @@ public class MedicalGroovyAdapter extends GroovyObjectSupport {
         return getPatient(req, meta);
     }
 
+
+    /**
+     * Упрощённый helper: получить пациента по СНИЛС.
+     */
+    public MedicalModels.MedicalOutcome<MedicalModels.Patient> getPatientBySnils(String snils, Object meta) {
+        java.util.Map<String, Object> req = new java.util.HashMap<>();
+        req.put("keys", java.util.List.of(java.util.Map.of("type", "snils", "value", snils)));
+        return getPatient(req, meta);
+    }
+
     /**
      * Получить предстоящие услуги/этапы.
      */

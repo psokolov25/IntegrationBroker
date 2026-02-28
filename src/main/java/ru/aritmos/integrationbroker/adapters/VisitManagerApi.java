@@ -70,6 +70,59 @@ public interface VisitManagerApi {
                                                   String correlationId,
                                                   String idempotencyKey);
 
+
+    /**
+     * Создать визит из DataBus payload формата VISIT_CREATE.
+     */
+    default Map<String, Object> createVisitFromEvent(String target,
+                                                     Map<String, Object> visitCreatePayload,
+                                                     Map<String, String> headers,
+                                                     String sourceMessageId,
+                                                     String correlationId,
+                                                     String idempotencyKey) {
+        Map<String, Object> payload = visitCreatePayload == null ? Map.of() : visitCreatePayload;
+        String branchId = payload.get("branchId") == null ? null : String.valueOf(payload.get("branchId"));
+        String entryPointId = payload.get("entryPointId") == null ? null : String.valueOf(payload.get("entryPointId"));
+        Object rawServiceIds = payload.get("serviceIds");
+        List<String> serviceIds;
+        if (rawServiceIds instanceof List<?> list) {
+            java.util.ArrayList<String> out = new java.util.ArrayList<>();
+            for (Object item : list) {
+                if (item != null) {
+                    out.add(String.valueOf(item));
+                }
+            }
+            serviceIds = java.util.List.copyOf(out);
+        } else {
+            serviceIds = java.util.List.of();
+        }
+        Map<String, String> parameters = new java.util.LinkedHashMap<>();
+        Object rawParameters = payload.get("parameters");
+        if (rawParameters instanceof Map<?, ?> pmap) {
+            for (Map.Entry<?, ?> e : pmap.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null) {
+                    parameters.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+                }
+            }
+        }
+        boolean printTicket = Boolean.TRUE.equals(payload.get("printTicket"));
+        String segmentationRuleId = payload.get("segmentationRuleId") == null
+                ? null
+                : String.valueOf(payload.get("segmentationRuleId"));
+
+        return createVisitWithParameters(target,
+                branchId,
+                entryPointId,
+                serviceIds,
+                parameters,
+                printTicket,
+                segmentationRuleId,
+                headers == null ? Map.of() : headers,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey);
+    }
+
     /**
      * Обновить параметры существующего визита.
      */
@@ -85,8 +138,40 @@ public interface VisitManagerApi {
     /**
      * Получить каталог услуг отделения VisitManager.
      */
-    Map<String, Object> getServicesCatalog(String target, String branchId);
+    default Map<String, Object> getServicesCatalog(String target, String branchId) {
+        return getServicesCatalog(target, branchId, Map.of(), null, null, null);
+    }
 
+    /**
+     * Получить каталог услуг отделения VisitManager с trace/meta заголовками.
+     */
+    Map<String, Object> getServicesCatalog(String target,
+                                           String branchId,
+                                           Map<String, String> headers,
+                                           String sourceMessageId,
+                                           String correlationId,
+                                           String idempotencyKey);
+
+
+
+    /**
+     * Упрощённый getServicesCatalog с заголовками и correlationId.
+     */
+    default Map<String, Object> getServicesCatalogWithHeaders(String target,
+                                                              String branchId,
+                                                              Map<String, String> headers,
+                                                              String correlationId) {
+        return getServicesCatalog(target, branchId, headers, null, correlationId, null);
+    }
+
+    /**
+     * Упрощённый getServicesCatalog для default target с заголовками.
+     */
+    default Map<String, Object> getServicesCatalogWithHeaders(String branchId,
+                                                              Map<String, String> headers,
+                                                              String correlationId) {
+        return getServicesCatalogWithHeaders("default", branchId, headers, correlationId);
+    }
     /**
      * Получить состояние отделения (ManagementController).
      */

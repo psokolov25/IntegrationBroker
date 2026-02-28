@@ -1,6 +1,7 @@
 package ru.aritmos.integrationbroker.adapters;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -41,6 +42,65 @@ public interface DataBusApi {
                                              Object payload,
                                              String correlationId) {
         return publishEvent(target, type, destination, payload, null, null, correlationId, null);
+    }
+
+    /**
+     * Публикация канонического события VISIT_CREATE для асинхронной интеграции с VisitManager.
+     */
+    default Map<String, Object> publishVisitCreate(String target,
+                                                   String destination,
+                                                   String branchId,
+                                                   String entryPointId,
+                                                   List<String> serviceIds,
+                                                   Map<String, String> parameters,
+                                                   boolean printTicket,
+                                                   String segmentationRuleId,
+                                                   String sourceMessageId,
+                                                   String correlationId,
+                                                   String idempotencyKey) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("branchId", branchId);
+        payload.put("entryPointId", entryPointId);
+        payload.put("serviceIds", serviceIds == null ? List.of() : List.copyOf(serviceIds));
+        payload.put("parameters", parameters == null ? Map.of() : Map.copyOf(parameters));
+        payload.put("printTicket", printTicket);
+        payload.put("segmentationRuleId", segmentationRuleId);
+        return publishEvent(target, "VISIT_CREATE", destination, payload, null, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+
+    /**
+     * Публикация route-события VISIT_CREATE с каноническим payload.
+     */
+    default Map<String, Object> publishVisitCreateRoute(String target,
+                                                        String destination,
+                                                        List<String> dataBusUrls,
+                                                        String branchId,
+                                                        String entryPointId,
+                                                        List<String> serviceIds,
+                                                        Map<String, String> parameters,
+                                                        boolean printTicket,
+                                                        String segmentationRuleId,
+                                                        Boolean sendToOtherBus,
+                                                        String sourceMessageId,
+                                                        String correlationId,
+                                                        String idempotencyKey) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("branchId", branchId);
+        payload.put("entryPointId", entryPointId);
+        payload.put("serviceIds", serviceIds == null ? List.of() : List.copyOf(serviceIds));
+        payload.put("parameters", parameters == null ? Map.of() : Map.copyOf(parameters));
+        payload.put("printTicket", printTicket);
+        payload.put("segmentationRuleId", segmentationRuleId);
+        return publishEventRoute(target,
+                destination,
+                "VISIT_CREATE",
+                dataBusUrls,
+                payload,
+                sendToOtherBus,
+                sourceMessageId,
+                correlationId,
+                idempotencyKey);
     }
 
     /**
@@ -118,6 +178,35 @@ public interface DataBusApi {
                                     String correlationId,
                                     String idempotencyKey);
 
+
+
+    /**
+     * Упрощённый успешный response (status=200, message=OK).
+     */
+    default Map<String, Object> sendResponseOk(String target,
+                                               String destination,
+                                               Object response,
+                                               String sourceMessageId,
+                                               String correlationId,
+                                               String idempotencyKey) {
+        return sendResponse(target, destination, 200, "OK", response, null, sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Упрощённый error response (status=500).
+     */
+    default Map<String, Object> sendResponseError(String target,
+                                                  String destination,
+                                                  Integer status,
+                                                  String message,
+                                                  Object response,
+                                                  String sourceMessageId,
+                                                  String correlationId,
+                                                  String idempotencyKey) {
+        Integer code = status == null ? 500 : status;
+        String msg = (message == null || message.isBlank()) ? "ERROR" : message;
+        return sendResponse(target, destination, code, msg, response, null, sourceMessageId, correlationId, idempotencyKey);
+    }
     /**
      * Прототип response-вызова (не основной путь на текущем этапе).
      */

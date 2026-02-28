@@ -10,6 +10,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class CrmGroovyAdapterTest {
 
+
+
+    @Test
+    void findCustomerByPhone_shouldBuildPhoneKeyAndDelegate() {
+        StubCrmService service = new StubCrmService();
+        CrmGroovyAdapter adapter = new CrmGroovyAdapter(service, new ObjectMapper());
+
+        CrmModels.CrmOutcome<CrmModels.CustomerCard> out = adapter.findCustomerByPhone(
+                "+79995554433",
+                Map.of("channel", "mobile")
+        );
+
+        assertEquals(true, out.success());
+        assertEquals("phone", service.lastRequest.keys().get(0).type());
+        assertEquals("+79995554433", service.lastRequest.keys().get(0).value());
+        assertEquals("mobile", service.lastMeta.get("channel"));
+    }
     @Test
     void createServiceCaseSimple_shouldBuildRequestAndDelegate() {
         StubCrmService service = new StubCrmService();

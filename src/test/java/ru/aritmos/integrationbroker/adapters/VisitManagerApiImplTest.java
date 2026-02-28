@@ -11,6 +11,61 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VisitManagerApiImplTest {
 
+
+
+    @Test
+    void createVisitFromEvent_shouldMapVisitCreatePayload() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.createVisitFromEvent(
+                "default",
+                Map.of(
+                        "branchId", "br-1",
+                        "entryPointId", "ep-1",
+                        "serviceIds", java.util.List.of("svc-1", 77),
+                        "parameters", Map.of("segment", "VIP", "priority", 5),
+                        "printTicket", true,
+                        "segmentationRuleId", "seg-1"
+                ),
+                Map.of("X-Trace", "t-1"),
+                "m-evt-1",
+                "c-evt-1",
+                "i-evt-1"
+        );
+
+        assertEquals("createVisitWithParametersRest", client.lastCall);
+        assertEquals(java.util.List.of("svc-1", "77"), client.lastServiceIds);
+        assertEquals(java.util.Map.of("segment", "VIP", "priority", "5"), client.lastParameters);
+    }
+
+
+
+
+    @Test
+    void getServicesCatalogWithHeadersConvenience_shouldDelegateAndUseDefaultTarget() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.getServicesCatalogWithHeaders("dep-77", Map.of("X-Req", "77"), "corr-77");
+
+        assertEquals("callRestEndpoint", client.lastCall);
+        assertEquals("GET", client.lastMethod);
+        assertEquals("/entrypoint/branches/dep-77/services/catalog", client.lastPath);
+        assertEquals("77", client.lastHeaders.get("X-Req"));
+    }
+    @Test
+    void getServicesCatalogWithHeaders_shouldUseCatalogEndpointAndPassHeaders() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.getServicesCatalog("default", "dep/1", Map.of("X-Custom", "v1"), "m-c1", "corr-c1", "idem-c1");
+
+        assertEquals("callRestEndpoint", client.lastCall);
+        assertEquals("GET", client.lastMethod);
+        assertEquals("/entrypoint/branches/dep%2F1/services/catalog", client.lastPath);
+        assertEquals("v1", client.lastHeaders.get("X-Custom"));
+    }
     @Test
     void getBranchState_shouldEncodePathSegment() {
         StubVisitManagerClient client = new StubVisitManagerClient();

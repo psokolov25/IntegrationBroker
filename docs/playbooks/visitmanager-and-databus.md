@@ -44,10 +44,12 @@ if (meta.branchId == null) {
 Integration Broker экспортирует alias `visit`:
 
 - `visit.servicesCatalog(branchId)` — получить каталог услуг отделения (для сопоставления)
+- `visitManager.getServicesCatalog(target, branchId, headers, sourceMessageId, correlationId, idempotencyKey)` — Java API вариант каталога услуг с trace/meta заголовками
 - `visit.matchServiceIdsByNames(branchId, names, allowContains)` — сопоставить внешние имена процедур со `serviceIds`
 - `visit.createVisitRest(args, meta)` — создать визит через REST (с fallback в REST outbox при ошибке)
 - `visit.createVirtualVisitRest(args, meta)` — создать виртуальный визит (service-point сценарий)
 - `visit.createVisitOnPrinterRest(args, meta)` — создать визит через выбранный принтер (services/parameters)
+- `visitManager.createVisitFromEvent(target, payload, headers, sourceMessageId, correlationId, idempotencyKey)` — Java API helper для прямого маппинга payload события `VISIT_CREATE` в REST-вызов VisitManager
 - `visit.callNextVisitRest(args, meta)` — вызвать следующего посетителя на service point
 - `visit.enterServicePointModeRest(args, meta)` — вход сотрудника в service-point режим (в т.ч. с `sid`)
 - `visit.exitServicePointModeRest(args, meta)` — выход сотрудника из service-point режима (в т.ч. с `sid`)
@@ -111,6 +113,9 @@ output.dataBusOutboxId = bus.publishEvent('VISIT_CREATE', 'visitmanager', body)
 
 Для route-варианта (fan-out в несколько внешних шин) можно использовать `dataBus.publishEventRoute(...)` на Java API или `bus.publishEventRoute(...)` в Groovy.
 
+Для унифицированной отправки канонического события создания визита есть Java helper `dataBus.publishVisitCreate(...)`: он собирает payload (`branchId`, `entryPointId`, `serviceIds`, `parameters`, `printTicket`, `segmentationRuleId`) и публикует событие типа `VISIT_CREATE`.
+Для route-сценариев доступен `dataBus.publishVisitCreateRoute(...)`, который отправляет тот же канонический payload через `/events/types/{type}/route`.
+
 ```groovy
 output.routeOutboxId = bus.publishEventRoute(
   'VISIT_CREATE',
@@ -125,7 +130,7 @@ output.routeOutboxId = bus.publishEventRoute(
 ```
 
 
-Для прототипных request/response сценариев DataBus alias `bus` также предоставляет упрощённые helper-методы:
+Для прототипных request/response сценариев DataBus alias `bus` также предоставляет упрощённые helper-методы. На Java API также доступны сокращения `dataBus.sendResponseOk(...)` и `dataBus.sendResponseError(...)` для типовых ответов без ручной расстановки статуса/message:
 
 - `bus.sendRequest(function, destination, params)`
 - `bus.sendRequest(function, destination, params, correlationId)`
