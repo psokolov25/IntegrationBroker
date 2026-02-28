@@ -6,6 +6,9 @@ import ru.aritmos.integrationbroker.core.FlowEngine;
 import ru.aritmos.integrationbroker.databus.DataBusGroovyAdapter;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +19,9 @@ import java.util.Map;
 @Singleton
 @FlowEngine.GroovyExecutable("dataBus")
 public class DataBusApiImpl implements DataBusApi {
+
+    private static final int DEFAULT_MAX_PAYLOAD_BYTES = 262_144;
+    private static final DateTimeFormatter RFC1123 = DateTimeFormatter.RFC_1123_DATE_TIME;
 
     private final DataBusGroovyAdapter dataBus;
     private final RuntimeConfigStore configStore;
@@ -37,6 +43,7 @@ public class DataBusApiImpl implements DataBusApi {
         String effectiveType = safeType(type, "UNKNOWN");
         String normalizedDestination = normalizeOrDefault(destination, "*");
         Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events", effectiveType, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, payload);
+        ensurePayloadWithinLimit(envelope.get("payload"));
         long outboxId = dataBus.publishEvent(effectiveType, normalizedDestination, sendToOtherBus, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("events", outboxId, envelope);
     }
@@ -54,10 +61,17 @@ public class DataBusApiImpl implements DataBusApi {
         String effectiveType = safeType(type, "UNKNOWN");
         String normalizedDestination = normalizeOrDefault(destination, "*");
         List<String> normalizedRouteUrls = normalizeRouteUrls(dataBusUrls);
+        int requestedRouteCount = dataBusUrls == null ? 0 : dataBusUrls.size();
+        int normalizedRouteCount = normalizedRouteUrls.size();
         Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events.route", effectiveType, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, payload);
+        ensurePayloadWithinLimit(envelope.get("payload"));
         envelope.put("routeDataBusUrls", normalizedRouteUrls);
+        if (normalizedRouteUrls.isEmpty()) {
+            return responseWithFanOutReport("events.route", 0, envelope, requestedRouteCount, normalizedRouteCount, 0, "FAILED");
+        }
         long outboxId = dataBus.publishEventRoute(effectiveType, normalizedDestination, sendToOtherBus, normalizedRouteUrls, envelope, sourceMessageId, correlationId, idempotencyKey);
-        return response("events.route", outboxId, envelope);
+        String reportStatus = (requestedRouteCount > normalizedRouteCount) ? "PARTIAL_SUCCESS" : "SUCCESS";
+        return responseWithFanOutReport("events.route", outboxId, envelope, requestedRouteCount, normalizedRouteCount, normalizedRouteCount, reportStatus);
     }
 
     @Override
@@ -72,6 +86,7 @@ public class DataBusApiImpl implements DataBusApi {
         String effectiveFunction = safeType(function, "unknown");
         String normalizedDestination = normalizeOrDefault(destination, "*");
         Map<String, Object> envelope = canonicalRequestEnvelope(target, normalizedDestination, effectiveFunction, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, params);
+        ensurePayloadWithinLimit(envelope.get("payload"));
         long outboxId = dataBus.sendRequest(effectiveFunction, normalizedDestination, sendToOtherBus, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("requests", outboxId, envelope);
     }
@@ -88,6 +103,7 @@ public class DataBusApiImpl implements DataBusApi {
                                             String idempotencyKey) {
         String normalizedDestination = normalizeOrDefault(destination, "*");
         Map<String, Object> envelope = canonicalResponseEnvelope(target, normalizedDestination, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, status, message, response);
+        ensurePayloadWithinLimit(envelope.get("payload"));
         long outboxId = dataBus.sendResponse(normalizedDestination, sendToOtherBus, status, message, envelope, sourceMessageId, correlationId, idempotencyKey);
         return response("responses", outboxId, envelope);
     }
@@ -111,6 +127,24 @@ public class DataBusApiImpl implements DataBusApi {
         out.put("transport", transport);
         out.put("outboxId", outboxId);
         out.put("envelope", envelope);
+        return out;
+    }
+
+    private Map<String, Object> responseWithFanOutReport(String transport,
+                                                          long outboxId,
+                                                          Map<String, Object> envelope,
+                                                          int requested,
+                                                          int normalized,
+                                                          int accepted,
+                                                          String status) {
+        Map<String, Object> out = response(transport, outboxId, envelope);
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("requested", requested);
+        report.put("normalized", normalized);
+        report.put("accepted", accepted);
+        report.put("rejected", Math.max(0, requested - normalized));
+        report.put("status", status);
+        out.put("fanOutReport", report);
         return out;
     }
 
@@ -140,7 +174,10 @@ public class DataBusApiImpl implements DataBusApi {
         envelope.put("sourceMessageId", normalize(sourceMessageId));
         envelope.put("idempotencyKey", resolvedIdempotencyKey);
         envelope.put("payload", payload);
-        envelope.put("_ib", buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey));
+        Map<String, Object> ibMeta = buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey);
+        ibMeta.put("requiredHeaders", buildMandatoryHeaders());
+        envelope.put("_ib", ibMeta);
+        envelope.put("params", buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey));
         envelope.put("request", null);
         envelope.put("response", null);
         envelope.put("status", null);
@@ -176,6 +213,45 @@ public class DataBusApiImpl implements DataBusApi {
             meta.put("idempotencyKey", idempotencyKey);
         }
         return meta;
+    }
+
+    private Map<String, Object> buildMandatoryHeaders() {
+        RuntimeConfigStore.RuntimeConfig cfg = configStore == null ? null : configStore.getEffective();
+        RuntimeConfigStore.DataBusIntegrationConfig db = cfg == null ? null : cfg.dataBus();
+        String senderHeaderName = db == null || normalize(db.senderHeaderName()) == null ? "Service-Sender" : normalize(db.senderHeaderName());
+        String sendDateHeaderName = db == null || normalize(db.sendDateHeaderName()) == null ? "Send-Date" : normalize(db.sendDateHeaderName());
+        String senderService = resolveSenderServiceName();
+        String sendDate = RFC1123.format(ZonedDateTime.now(ZoneId.of("GMT")));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put(senderHeaderName, senderService);
+        out.put(sendDateHeaderName, sendDate);
+        return out;
+    }
+
+    private void ensurePayloadWithinLimit(Object payload) {
+        int maxBytes = resolveMaxPayloadBytes();
+        if (maxBytes <= 0 || payload == null) {
+            return;
+        }
+        int sizeBytes = String.valueOf(payload).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        if (sizeBytes > maxBytes) {
+            throw new IllegalArgumentException("DataBus payload превышает лимит: " + sizeBytes + " > " + maxBytes + " bytes");
+        }
+    }
+
+    private int resolveMaxPayloadBytes() {
+        String value = System.getProperty("ib.databus.max-payload-bytes");
+        if (value == null || value.isBlank()) {
+            value = System.getenv("IB_DATABUS_MAX_PAYLOAD_BYTES");
+        }
+        if (value == null || value.isBlank()) {
+            return DEFAULT_MAX_PAYLOAD_BYTES;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_MAX_PAYLOAD_BYTES;
+        }
     }
 
     private String normalize(String value) {

@@ -18,9 +18,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.inject.Inject;
+import ru.aritmos.integrationbroker.adapters.VisitManagerConflictMetrics;
 import ru.aritmos.integrationbroker.core.InboundDlqService;
 import ru.aritmos.integrationbroker.core.IdempotencyService;
 import ru.aritmos.integrationbroker.core.InboundProcessingService;
+import ru.aritmos.integrationbroker.core.CorrelationContext;
 import ru.aritmos.integrationbroker.core.KeycloakProxyEnrichmentService;
 import ru.aritmos.integrationbroker.core.MessagingOutboxService;
 import ru.aritmos.integrationbroker.core.RestOutboxService;
@@ -49,6 +51,7 @@ public class InboundController {
     private final KeycloakProxyEnrichmentService keycloakProxyEnrichmentService;
     private final MessagingOutboxService messagingOutboxService;
     private final RestOutboxService restOutboxService;
+    private final VisitManagerConflictMetrics visitManagerConflictMetrics;
     private final ObjectMapper objectMapper;
 
     @Inject
@@ -58,6 +61,7 @@ public class InboundController {
                              KeycloakProxyEnrichmentService keycloakProxyEnrichmentService,
                              MessagingOutboxService messagingOutboxService,
                              RestOutboxService restOutboxService,
+                             VisitManagerConflictMetrics visitManagerConflictMetrics,
                              ObjectMapper objectMapper) {
         this.processingService = processingService;
         this.idempotencyService = idempotencyService;
@@ -65,6 +69,7 @@ public class InboundController {
         this.keycloakProxyEnrichmentService = keycloakProxyEnrichmentService;
         this.messagingOutboxService = messagingOutboxService;
         this.restOutboxService = restOutboxService;
+        this.visitManagerConflictMetrics = visitManagerConflictMetrics;
         this.objectMapper = objectMapper;
     }
 
@@ -82,7 +87,8 @@ public class InboundController {
     @ApiResponse(responseCode = "500", description = "Выполнение flow завершилось ошибкой. Если включён inbound DLQ, сообщение сохранено для replay", content = @Content(schema = @Schema(implementation = InboundResult.class)))
     public HttpResponse<InboundResult> inbound(@Body InboundEnvelope envelope) {
         try {
-            InboundProcessingService.ProcessingResult res = processingService.process(envelope);
+            InboundEnvelope normalized = normalizeCorrelation(envelope);
+            InboundProcessingService.ProcessingResult res = processingService.process(normalized);
             InboundResult body = new InboundResult(res.outcome(), res.idempotencyKey(), res.output(), null, null, null);
 
             if ("LOCKED".equals(res.outcome())) {
@@ -123,6 +129,30 @@ public class InboundController {
         }
     }
 
+    private InboundEnvelope normalizeCorrelation(InboundEnvelope envelope) {
+        CorrelationContext context = CorrelationContext.fromInbound(envelope);
+        Map<String, String> headers = envelope.headers() == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(envelope.headers());
+        headers.putIfAbsent("X-Correlation-Id", context.correlationId());
+        headers.putIfAbsent("X-Request-Id", context.requestId());
+
+        String messageId = envelope.messageId();
+        if (messageId == null || messageId.isBlank()) {
+            messageId = context.requestId();
+        }
+
+        return new InboundEnvelope(
+                envelope.kind(),
+                envelope.type(),
+                envelope.payload(),
+                headers,
+                messageId,
+                context.correlationId(),
+                envelope.branchId(),
+                envelope.userId(),
+                envelope.sourceMeta()
+        );
+    }
+
     @Get(uri = "/metrics/integration")
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(
@@ -152,11 +182,14 @@ public class InboundController {
         long kcMiss = keycloakProxyEnrichmentService.cacheMisses();
         long kcErr = keycloakProxyEnrichmentService.errors();
 
+        long vmConflicts409 = visitManagerConflictMetrics.conflicts409();
+
         return new IntegrationMetrics(inProgress, completed, failed,
                 dlqPending, dlqReplayed, dlqDead,
                 msgPending, msgSent, msgDead,
                 restPending, restSent, restDead,
-                kcHits, kcMiss, kcErr);
+                kcHits, kcMiss, kcErr,
+                vmConflicts409);
     }
 
     /**
@@ -217,7 +250,9 @@ public class InboundController {
             @Schema(description = "KeycloakProxy enrichment: промахи кэша")
             long keycloakProxyCacheMisses,
             @Schema(description = "KeycloakProxy enrichment: ошибки")
-            long keycloakProxyErrors
+            long keycloakProxyErrors,
+            @Schema(description = "VisitManager: количество конфликтов HTTP 409")
+            long visitManagerConflicts409
     ) {
     }
 }
@@ -274,11 +309,55 @@ class AdminIdempotencyController {
         return new IdempotencyListResponse(items);
     }
 
+    @Post(uri = "/{key}/unlock", consumes = MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Ручная разморозка LOCKED-записи идемпотентности",
+            description = "Переводит запись из IN_PROGRESS в FAILED c аудитом причины ручной разморозки. " +
+                    "Используется при зависших обработках и не изменяет payload/result записи."
+    )
+    @ApiResponse(responseCode = "200", description = "Запись разморожена")
+    @ApiResponse(responseCode = "404", description = "Запись не найдена или не находится в IN_PROGRESS")
+    public HttpResponse<UnlockResponse> unlock(
+            @PathVariable("key") String key,
+            @Body UnlockRequest request) {
+
+        String actor = request == null ? null : request.actor();
+        String reason = request == null ? null : request.reason();
+        boolean unlocked = idempotencyService.manualUnlock(key, actor, reason);
+        if (!unlocked) {
+            return HttpResponse.notFound(new UnlockResponse(false, key, "NOT_FOUND_OR_NOT_IN_PROGRESS"));
+        }
+        return HttpResponse.ok(new UnlockResponse(true, key, "UNLOCKED"));
+    }
+
     @Serdeable
     @Schema(name = "IdempotencyListResponse", description = "Ответ со списком записей идемпотентности")
     record IdempotencyListResponse(
             @Schema(description = "Список записей")
             List<IdempotencyService.IdempotencyRecord> items
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "IdempotencyUnlockRequest", description = "Запрос на ручную разморозку idempotency-ключа")
+    record UnlockRequest(
+            @Schema(description = "Кто выполнил разморозку")
+            String actor,
+            @Schema(description = "Причина разморозки")
+            String reason
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "IdempotencyUnlockResponse", description = "Результат ручной разморозки")
+    record UnlockResponse(
+            @Schema(description = "Успешно ли разморожено")
+            boolean unlocked,
+            @Schema(description = "Ключ идемпотентности")
+            String idempotencyKey,
+            @Schema(description = "Код результата")
+            String code
     ) {
     }
 }
