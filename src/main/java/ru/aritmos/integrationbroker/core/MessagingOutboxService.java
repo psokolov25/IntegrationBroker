@@ -2,6 +2,7 @@ package ru.aritmos.integrationbroker.core;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micronaut.context.annotation.Value;
 import io.micronaut.serde.annotation.Serdeable;
 import jakarta.inject.Singleton;
 import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
@@ -48,6 +49,8 @@ public class MessagingOutboxService {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final MessagingProviderRegistry providerRegistry;
+    @Value("${integrationbroker.outbound.dry-run:false}")
+    protected boolean outboundDryRun;
 
     public MessagingOutboxService(DataSource dataSource,
                                  ObjectMapper objectMapper,
@@ -80,6 +83,13 @@ public class MessagingOutboxService {
                         String sourceMessageId,
                         String correlationId,
                         String idempotencyKey) {
+        if (outboundDryRun) {
+            Mode dryRunMode = cfg == null ? Mode.ON_FAILURE : parseMode(cfg.mode());
+            if (cfg == null || !cfg.enabled() || dryRunMode == Mode.ON_FAILURE) {
+                return 0;
+            }
+        }
+
         if (cfg == null || !cfg.enabled()) {
             // Если outbox выключен — пытаемся отправить напрямую.
             MessagingProvider.SendResult r = sendDirect(providerId, destination, messageKey, headers, payload, correlationId, sourceMessageId, idempotencyKey);

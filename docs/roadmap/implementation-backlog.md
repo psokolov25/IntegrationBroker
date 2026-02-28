@@ -18,7 +18,7 @@
 6. `TODO` Добавить пер-connector retry policy (override global backoff).
 7. `TODO` Реализовать `circuit-breaker` для проблемных REST-коннекторов.
 8. `TODO` Добавить журнал смены runtime-конфигурации (кто/когда/что изменил).
-9. `TODO` Реализовать dry-run режим для outbound (без фактической отправки).
+9. `IN_PROGRESS` Реализовать dry-run режим для outbound (без фактической отправки).
 10. `TODO` Поддержать batch replay для DLQ с фильтрацией по type/source/branch.
 
 ## 2) VisitManager и DataBus (контракты по AGENTS)
