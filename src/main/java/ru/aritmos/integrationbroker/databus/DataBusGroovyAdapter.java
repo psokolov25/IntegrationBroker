@@ -2,6 +2,7 @@ package ru.aritmos.integrationbroker.databus;
 
 import jakarta.inject.Singleton;
 import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
+import ru.aritmos.integrationbroker.core.CorrelationContext;
 import ru.aritmos.integrationbroker.core.FlowEngine;
 import ru.aritmos.integrationbroker.core.RestOutboxService;
 import ru.aritmos.integrationbroker.core.SensitiveDataSanitizer;
@@ -493,18 +494,9 @@ public class DataBusGroovyAdapter {
     private static void appendTraceHeaders(Map<String, String> headers,
                                            String sourceMessageId,
                                            String correlationId) {
-        String corr = safeNullable(correlationId);
-        if (corr != null) {
-            headers.put("X-Correlation-Id", corr);
-        }
-
-        String requestId = safeNullable(sourceMessageId);
-        if (requestId == null) {
-            requestId = corr;
-        }
-        if (requestId != null) {
-            headers.put("X-Request-Id", requestId);
-        }
+        CorrelationContext ctx = CorrelationContext.resolve(correlationId, sourceMessageId);
+        headers.put("X-Correlation-Id", ctx.correlationId());
+        headers.put("X-Request-Id", ctx.requestId());
     }
 
 

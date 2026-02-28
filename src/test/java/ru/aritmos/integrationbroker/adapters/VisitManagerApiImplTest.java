@@ -11,6 +11,47 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VisitManagerApiImplTest {
 
+    @Test
+    void toResult_shouldExposeNormalizedEnvelopeForSuccess() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        Map<String, Object> result = api.getBranchState("default", "dep-1", Map.of(), "m1", "c1", "i1");
+
+        assertEquals("SUCCESS", result.get("status"));
+        assertEquals(Map.of(), result.get("headers"));
+        assertNull(result.get("error"));
+    }
+
+    @Test
+    void toResult_shouldMapVmConflictAndIncrementMetric() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerConflictMetrics metrics = new VisitManagerConflictMetrics();
+        client.nextResult = VisitManagerClient.CallResult.error("HTTP_409", "VisitManager вернул статус 409");
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client, metrics);
+
+        Map<String, Object> result = api.getBranchState("default", "dep-1", Map.of(), "m1", "c1", "i1");
+
+        assertEquals("ERROR", result.get("status"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) result.get("error");
+        assertEquals("VM_CONFLICT", error.get("domainCode"));
+        assertEquals(1L, metrics.conflicts409());
+    }
+
+    @Test
+    void toResult_shouldMapVmNotFoundDomainCode() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        client.nextResult = VisitManagerClient.CallResult.error("HTTP_404", "VisitManager вернул статус 404");
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        Map<String, Object> result = api.getBranchState("default", "dep-1", Map.of(), "m1", "c1", "i1");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) result.get("error");
+        assertEquals("VM_NOT_FOUND", error.get("domainCode"));
+    }
+
 
 
 
@@ -891,6 +932,7 @@ class VisitManagerApiImplTest {
         private Map<String, String> lastHeaders;
         private Map<String, String> lastParameters;
         private java.util.List<String> lastServiceIds;
+        private CallResult nextResult;
 
         private StubVisitManagerClient() {
             super(null, null, null, null);
@@ -909,7 +951,7 @@ class VisitManagerApiImplTest {
             this.lastPath = path;
             this.lastBody = body;
             this.lastHeaders = extraHeaders;
-            return CallResult.direct(200, null);
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
         }
 
         @Override
@@ -925,7 +967,7 @@ class VisitManagerApiImplTest {
             this.lastCall = "createVisitRest";
             this.lastServiceIds = serviceIds;
             this.lastHeaders = extraHeaders;
-            return CallResult.direct(200, null);
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
         }
 
         @Override
@@ -942,7 +984,7 @@ class VisitManagerApiImplTest {
             this.lastCall = "createVisitWithParametersRest";
             this.lastServiceIds = serviceIds;
             this.lastParameters = parameters;
-            return CallResult.direct(200, null);
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
         }
 
         @Override
@@ -955,13 +997,13 @@ class VisitManagerApiImplTest {
                                                     String idempotencyKey) {
             this.lastCall = "updateVisitParametersRest";
             this.lastParameters = parameters;
-            return CallResult.direct(200, null);
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
         }
 
         @Override
         public CallResult getServicesCatalog(String branchId) {
             this.lastCall = "getServicesCatalog";
-            return CallResult.direct(200, null);
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
         }
     }
 }

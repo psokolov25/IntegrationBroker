@@ -17,7 +17,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Сервис идемпотентности Integration Broker.
@@ -42,6 +44,8 @@ import java.util.Objects;
 @Singleton
 public class IdempotencyService {
 
+    private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("^[^:\\s]+:[^:\\s]+:[^:\\s]+$");
+
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
 
@@ -62,6 +66,12 @@ public class IdempotencyService {
         LOCKED
     }
 
+    public enum SkippedReason {
+        DUPLICATE,
+        LOCKED,
+        EXPIRED
+    }
+
     /**
      * Статус записи идемпотентности.
      */
@@ -78,7 +88,7 @@ public class IdempotencyService {
      * @param decision решение
      * @param existingResultJson результат (если decision=SKIP_COMPLETED и результат был сохранён)
      */
-    public record IdempotencyDecision(String idemKey, Decision decision, String existingResultJson) {
+    public record IdempotencyDecision(String idemKey, Decision decision, String existingResultJson, SkippedReason skippedReason) {
     }
 
     /**
@@ -90,8 +100,10 @@ public class IdempotencyService {
      */
     public IdempotencyDecision decide(InboundEnvelope envelope, RuntimeConfigStore.IdempotencyConfig config) {
         if (config == null || !config.enabled()) {
-            return new IdempotencyDecision(null, Decision.PROCESS, null);
+            return new IdempotencyDecision(null, Decision.PROCESS, null, null);
         }
+
+        validateProvidedIdempotencyKey(envelope);
 
         String idemKey = computeKey(envelope, config.strategy());
         Instant now = Instant.now();
@@ -100,32 +112,36 @@ public class IdempotencyService {
         // 1) Пытаемся вставить новую запись.
         boolean inserted = tryInsert(idemKey, config.strategy().name(), Status.IN_PROGRESS, now, lockUntil);
         if (inserted) {
-            return new IdempotencyDecision(idemKey, Decision.PROCESS, null);
+            return new IdempotencyDecision(idemKey, Decision.PROCESS, null, null);
         }
 
         // 2) Читаем существующую.
         Row row = getRow(idemKey);
         if (row == null) {
             // Теоретически возможно только при гонке. В этом случае безопаснее обработать.
-            return new IdempotencyDecision(idemKey, Decision.PROCESS, null);
+            return new IdempotencyDecision(idemKey, Decision.PROCESS, null, null);
         }
 
         if (row.status == Status.COMPLETED) {
-            return new IdempotencyDecision(idemKey, Decision.SKIP_COMPLETED, row.resultJson);
+            markSkippedReason(idemKey, SkippedReason.DUPLICATE, now);
+            return new IdempotencyDecision(idemKey, Decision.SKIP_COMPLETED, row.resultJson, SkippedReason.DUPLICATE);
         }
 
         if (row.status == Status.IN_PROGRESS && row.lockUntil != null && row.lockUntil.isAfter(now)) {
-            return new IdempotencyDecision(idemKey, Decision.LOCKED, null);
+            markSkippedReason(idemKey, SkippedReason.LOCKED, now);
+            return new IdempotencyDecision(idemKey, Decision.LOCKED, null, SkippedReason.LOCKED);
         }
 
         // 3) FAILED или истёкший IN_PROGRESS -> пробуем «захватить» обработку.
         boolean updated = tryUpdateToInProgress(idemKey, now, lockUntil);
         if (updated) {
-            return new IdempotencyDecision(idemKey, Decision.PROCESS, null);
+            clearSkippedReason(idemKey);
+            return new IdempotencyDecision(idemKey, Decision.PROCESS, null, null);
         }
 
         // Если не удалось — считаем LOCKED (не poison).
-        return new IdempotencyDecision(idemKey, Decision.LOCKED, null);
+        markSkippedReason(idemKey, SkippedReason.LOCKED, now);
+        return new IdempotencyDecision(idemKey, Decision.LOCKED, null, SkippedReason.LOCKED);
     }
 
     /**
@@ -149,7 +165,7 @@ public class IdempotencyService {
         Instant now = Instant.now();
         try (Connection c = dataSource.getConnection();
              PreparedStatement ps = c.prepareStatement(
-                     "UPDATE ib_idempotency SET status=?, updated_at=?, lock_until=?, result_json=?, last_error_code=NULL, last_error_message=NULL WHERE idem_key=?")) {
+                     "UPDATE ib_idempotency SET status=?, updated_at=?, lock_until=?, result_json=?, last_error_code=NULL, last_error_message=NULL, skipped_reason=NULL WHERE idem_key=?")) {
             ps.setString(1, Status.COMPLETED.name());
             ps.setTimestamp(2, Timestamp.from(now));
             ps.setTimestamp(3, Timestamp.from(now));
@@ -180,7 +196,7 @@ public class IdempotencyService {
 
         try (Connection c = dataSource.getConnection();
              PreparedStatement ps = c.prepareStatement(
-                     "UPDATE ib_idempotency SET status=?, updated_at=?, lock_until=?, last_error_code=?, last_error_message=? WHERE idem_key=?")) {
+                     "UPDATE ib_idempotency SET status=?, updated_at=?, lock_until=?, last_error_code=?, last_error_message=?, skipped_reason=NULL WHERE idem_key=?")) {
             ps.setString(1, Status.FAILED.name());
             ps.setTimestamp(2, Timestamp.from(now));
             ps.setTimestamp(3, Timestamp.from(now));
@@ -204,7 +220,7 @@ public class IdempotencyService {
         if (row == null) {
             return null;
         }
-        return new IdempotencyRecord(idemKey, row.status.name(), row.lockUntil == null ? null : row.lockUntil.toString(), row.updatedAt == null ? null : row.updatedAt.toString());
+        return new IdempotencyRecord(idemKey, row.status.name(), row.lockUntil == null ? null : row.lockUntil.toString(), row.updatedAt == null ? null : row.updatedAt.toString(), row.skippedReason == null ? null : row.skippedReason.name());
     }
 
     /**
@@ -219,8 +235,8 @@ public class IdempotencyService {
         List<IdempotencyRecord> out = new ArrayList<>();
 
         String sql = (status == null || status.isBlank())
-                ? "SELECT idem_key, status, lock_until, updated_at FROM ib_idempotency ORDER BY updated_at DESC LIMIT ?"
-                : "SELECT idem_key, status, lock_until, updated_at FROM ib_idempotency WHERE status=? ORDER BY updated_at DESC LIMIT ?";
+                ? "SELECT idem_key, status, lock_until, updated_at, skipped_reason FROM ib_idempotency ORDER BY updated_at DESC LIMIT ?"
+                : "SELECT idem_key, status, lock_until, updated_at, skipped_reason FROM ib_idempotency WHERE status=? ORDER BY updated_at DESC LIMIT ?";
 
         try (Connection c = dataSource.getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
@@ -237,9 +253,11 @@ public class IdempotencyService {
                     String st = rs.getString(2);
                     Timestamp lock = rs.getTimestamp(3);
                     Timestamp upd = rs.getTimestamp(4);
+                    String skippedReason = rs.getString(5);
                     out.add(new IdempotencyRecord(key, st,
                             lock == null ? null : lock.toInstant().toString(),
-                            upd == null ? null : upd.toInstant().toString()));
+                            upd == null ? null : upd.toInstant().toString(),
+                            skippedReason));
                 }
             }
         } catch (Exception e) {
@@ -268,6 +286,29 @@ public class IdempotencyService {
         return 0;
     }
 
+    public boolean manualUnlock(String idemKey, String actor, String reason) {
+        if (idemKey == null || idemKey.isBlank()) {
+            return false;
+        }
+        Instant now = Instant.now();
+        String audit = "manualUnlock actor=" + safeShort(actor, 120) + "; reason=" + safeShort(reason, 500);
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE ib_idempotency SET status=?, updated_at=?, lock_until=?, last_error_code=?, last_error_message=?, skipped_reason=? WHERE idem_key=? AND status=?")) {
+            ps.setString(1, Status.FAILED.name());
+            ps.setTimestamp(2, Timestamp.from(now));
+            ps.setTimestamp(3, Timestamp.from(now));
+            ps.setString(4, "MANUAL_UNLOCK");
+            ps.setString(5, audit);
+            ps.setString(6, SkippedReason.EXPIRED.name());
+            ps.setString(7, idemKey.trim());
+            ps.setString(8, Status.IN_PROGRESS.name());
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private boolean tryInsert(String key, String strategy, Status status, Instant now, Instant lockUntil) {
         String sql = "INSERT INTO ib_idempotency (idem_key, strategy, status, created_at, updated_at, lock_until) VALUES (?,?,?,?,?,?)";
         try (Connection c = dataSource.getConnection();
@@ -287,7 +328,7 @@ public class IdempotencyService {
     }
 
     private boolean tryUpdateToInProgress(String key, Instant now, Instant lockUntil) {
-        String sql = "UPDATE ib_idempotency SET status=?, updated_at=?, lock_until=? WHERE idem_key=?";
+        String sql = "UPDATE ib_idempotency SET status=?, updated_at=?, lock_until=?, skipped_reason=NULL WHERE idem_key=?";
         try (Connection c = dataSource.getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, Status.IN_PROGRESS.name());
@@ -301,7 +342,7 @@ public class IdempotencyService {
     }
 
     private Row getRow(String key) {
-        String sql = "SELECT status, lock_until, result_json, updated_at FROM ib_idempotency WHERE idem_key=?";
+        String sql = "SELECT status, lock_until, result_json, updated_at, skipped_reason FROM ib_idempotency WHERE idem_key=?";
         try (Connection c = dataSource.getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, key);
@@ -313,15 +354,101 @@ public class IdempotencyService {
                 Timestamp lock = rs.getTimestamp(2);
                 String resultJson = rs.getString(3);
                 Timestamp upd = rs.getTimestamp(4);
+                String skippedReasonRaw = rs.getString(5);
                 Status status = Status.valueOf(st);
+                SkippedReason skippedReason = skippedReasonRaw == null || skippedReasonRaw.isBlank() ? null : SkippedReason.valueOf(skippedReasonRaw);
                 return new Row(status,
                         lock == null ? null : lock.toInstant(),
                         resultJson,
-                        upd == null ? null : upd.toInstant());
+                        upd == null ? null : upd.toInstant(),
+                        skippedReason);
             }
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private void markSkippedReason(String idemKey, SkippedReason reason, Instant now) {
+        if (idemKey == null || reason == null) {
+            return;
+        }
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE ib_idempotency SET skipped_reason=?, updated_at=? WHERE idem_key=?")) {
+            ps.setString(1, reason.name());
+            ps.setTimestamp(2, Timestamp.from(now));
+            ps.setString(3, idemKey);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            // no-op
+        }
+    }
+
+    private void clearSkippedReason(String idemKey) {
+        if (idemKey == null) {
+            return;
+        }
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE ib_idempotency SET skipped_reason=NULL WHERE idem_key=?")) {
+            ps.setString(1, idemKey);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            // no-op
+        }
+    }
+
+    private void validateProvidedIdempotencyKey(InboundEnvelope envelope) {
+        String provided = resolveProvidedIdempotencyKey(envelope);
+        if (provided == null) {
+            return;
+        }
+        if (!IDEMPOTENCY_KEY_PATTERN.matcher(provided).matches()) {
+            throw new IllegalArgumentException("Некорректный idempotency key: ожидается шаблон source:flow:externalId");
+        }
+    }
+
+    private String resolveProvidedIdempotencyKey(InboundEnvelope envelope) {
+        if (envelope == null) {
+            return null;
+        }
+        String fromHeader = firstNonBlank(
+                header(envelope.headers(), "Idempotency-Key"),
+                header(envelope.headers(), "X-Idempotency-Key")
+        );
+        if (fromHeader != null) {
+            return fromHeader;
+        }
+
+        Map<String, Object> meta = envelope.sourceMeta();
+        if (meta == null) {
+            return null;
+        }
+        Object raw = meta.get("idempotencyKey");
+        if (raw == null) {
+            raw = meta.get("idempotency_key");
+        }
+        return raw == null ? null : safeShort(String.valueOf(raw), 512);
+    }
+
+    private static String header(Map<String, String> headers, String name) {
+        if (headers == null || headers.isEmpty() || name == null) {
+            return null;
+        }
+        for (Map.Entry<String, String> e : headers.entrySet()) {
+            if (e.getKey() != null && e.getKey().equalsIgnoreCase(name) && e.getValue() != null && !e.getValue().isBlank()) {
+                return e.getValue().trim();
+            }
+        }
+        return null;
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) {
+            return a.trim();
+        }
+        if (b != null && !b.isBlank()) {
+            return b.trim();
+        }
+        return null;
     }
 
     private String computeKey(InboundEnvelope envelope, RuntimeConfigStore.IdempotencyStrategy strategy) {
@@ -389,7 +516,7 @@ public class IdempotencyService {
         return trimmed.substring(0, maxLen);
     }
 
-    private record Row(Status status, Instant lockUntil, String resultJson, Instant updatedAt) {
+    private record Row(Status status, Instant lockUntil, String resultJson, Instant updatedAt, SkippedReason skippedReason) {
     }
 
     /**
@@ -399,7 +526,8 @@ public class IdempotencyService {
             String idemKey,
             String status,
             String lockUntil,
-            String updatedAt
+            String updatedAt,
+            String skippedReason
     ) {
     }
 }

@@ -161,6 +161,17 @@ class DataBusApiImplTest {
         assertEquals("corr-1", ibMeta.get("correlationId"));
         assertEquals("src-1", ibMeta.get("requestId"));
         assertEquals("idem-1", ibMeta.get("idempotencyKey"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> requiredHeaders = (Map<String, Object>) ibMeta.get("requiredHeaders");
+        assertNotNull(requiredHeaders);
+        assertEquals("integration-broker", requiredHeaders.get("Service-Sender"));
+        assertNotNull(requiredHeaders.get("Send-Date"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> paramsMeta = (Map<String, Object>) envelope.get("params");
+        assertEquals("corr-1", paramsMeta.get("correlationId"));
+        assertEquals("src-1", paramsMeta.get("requestId"));
+        assertEquals("idem-1", paramsMeta.get("idempotencyKey"));
 
         assertEquals("visit.created", stub.lastType);
         assertEquals("crm", stub.lastDestination);
@@ -231,7 +242,7 @@ class DataBusApiImplTest {
         assertNull(envelope.get("idempotencyKey"));
         @SuppressWarnings("unchecked")
         Map<String, Object> ibMeta = (Map<String, Object>) envelope.get("_ib");
-        assertTrue(ibMeta.isEmpty());
+        assertTrue(ibMeta.containsKey("requiredHeaders"));
     }
 
     @Test
@@ -288,6 +299,47 @@ class DataBusApiImplTest {
         Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
         assertEquals(List.of("http://bus-1", "http://bus-2"), envelope.get("routeDataBusUrls"));
         assertEquals(List.of("http://bus-1", "http://bus-2"), stub.lastDataBusUrls);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fanOutReport = (Map<String, Object>) result.get("fanOutReport");
+        assertEquals("PARTIAL_SUCCESS", fanOutReport.get("status"));
+        assertEquals(5, fanOutReport.get("requested"));
+        assertEquals(2, fanOutReport.get("normalized"));
+        assertEquals(3, fanOutReport.get("rejected"));
+    }
+
+    @Test
+    void publishEventRoute_shouldReturnFailedFanOutReportWhenNoNormalizedUrls() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishEventRoute("target-1", "crm", "visit.created", List.of(" ", "\t"), Map.of("visitId", "V-2"), false, "src-2", "corr-2", "idem-2");
+
+        assertEquals(0L, result.get("outboxId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fanOutReport = (Map<String, Object>) result.get("fanOutReport");
+        assertEquals("FAILED", fanOutReport.get("status"));
+        assertEquals(2, fanOutReport.get("requested"));
+        assertEquals(0, fanOutReport.get("normalized"));
+    }
+
+    @Test
+    void publishEvent_shouldRejectPayloadOverLimit() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        String previous = System.getProperty("ib.databus.max-payload-bytes");
+        try {
+            System.setProperty("ib.databus.max-payload-bytes", "16");
+            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                    () -> api.publishEvent("target-1", "visit.created", "crm", Map.of("payload", "12345678901234567890"), false, "src-1", "corr-1", "idem-1"));
+            assertTrue(ex.getMessage().contains("превышает лимит"));
+        } finally {
+            if (previous == null) {
+                System.clearProperty("ib.databus.max-payload-bytes");
+            } else {
+                System.setProperty("ib.databus.max-payload-bytes", previous);
+            }
+        }
     }
 
     @Test

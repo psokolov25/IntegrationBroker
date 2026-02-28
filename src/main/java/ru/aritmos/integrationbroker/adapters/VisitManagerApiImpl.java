@@ -21,9 +21,15 @@ import java.util.StringJoiner;
 public class VisitManagerApiImpl implements VisitManagerApi {
 
     private final VisitManagerClient client;
+    private final VisitManagerConflictMetrics conflictMetrics;
 
     public VisitManagerApiImpl(VisitManagerClient client) {
+        this(client, null);
+    }
+
+    public VisitManagerApiImpl(VisitManagerClient client, VisitManagerConflictMetrics conflictMetrics) {
         this.client = client;
+        this.conflictMetrics = conflictMetrics;
     }
 
     @Override
@@ -546,7 +552,7 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         return value == null || value.isBlank();
     }
 
-    private static Map<String, Object> invalidArgument(String field) {
+    private Map<String, Object> invalidArgument(String field) {
         return toResult(VisitManagerClient.CallResult.error("INVALID_ARGUMENT", "Отсутствует обязательный параметр: " + field));
     }
 
@@ -651,7 +657,9 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         return new ArrayList<>(out);
     }
 
-    private static Map<String, Object> toResult(VisitManagerClient.CallResult r) {
+    private Map<String, Object> toResult(VisitManagerClient.CallResult r) {
+        maybeTrackConflict(r);
+
         Map<String, Object> out = new HashMap<>();
         out.put("mode", r.mode());
         out.put("httpStatus", r.httpStatus());
@@ -659,7 +667,79 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         out.put("errorCode", r.errorCode());
         out.put("errorMessage", r.errorMessage());
         out.put("body", r.response());
+
+        String status = resolveEnvelopeStatus(r);
+        Map<String, Object> error = resolveEnvelopeError(r);
+        out.put("status", status);
+        out.put("headers", Map.of());
+        out.put("error", error);
         return out;
+    }
+
+    private void maybeTrackConflict(VisitManagerClient.CallResult r) {
+        if (conflictMetrics == null || r == null) {
+            return;
+        }
+        if (r.httpStatus() == 409 || "HTTP_409".equals(r.errorCode())) {
+            conflictMetrics.increment409();
+        }
+    }
+
+    private static String resolveEnvelopeStatus(VisitManagerClient.CallResult r) {
+        if (r == null) {
+            return "ERROR";
+        }
+        if ("DIRECT".equals(r.mode()) && r.httpStatus() >= 200 && r.httpStatus() < 300) {
+            return "SUCCESS";
+        }
+        if ("OUTBOX_ENQUEUED".equals(r.mode())) {
+            return "ACCEPTED";
+        }
+        return "ERROR";
+    }
+
+    private static Map<String, Object> resolveEnvelopeError(VisitManagerClient.CallResult r) {
+        if (r == null) {
+            return Map.of("code", "UNKNOWN", "domainCode", "VM_CALL_FAILED", "message", "Unknown VisitManager call result", "httpStatus", 0);
+        }
+
+        String errorCode = r.errorCode();
+        String errorMessage = r.errorMessage();
+        int httpStatus = r.httpStatus();
+
+        if ((errorCode == null || errorCode.isBlank()) && httpStatus >= 200 && httpStatus < 300) {
+            return null;
+        }
+        if ((errorCode == null || errorCode.isBlank()) && "OUTBOX_ENQUEUED".equals(r.mode())) {
+            return null;
+        }
+
+        String domainCode = mapVisitManagerDomainCode(errorCode, httpStatus);
+        return Map.of(
+                "code", errorCode == null ? "UNKNOWN" : errorCode,
+                "domainCode", domainCode,
+                "message", errorMessage == null ? "" : errorMessage,
+                "httpStatus", httpStatus
+        );
+    }
+
+    private static String mapVisitManagerDomainCode(String errorCode, int httpStatus) {
+        if ("INVALID_ARGUMENT".equals(errorCode)) {
+            return "IB_INVALID_ARGUMENT";
+        }
+        if (httpStatus == 404 || "HTTP_404".equals(errorCode)) {
+            return "VM_NOT_FOUND";
+        }
+        if (httpStatus == 409 || "HTTP_409".equals(errorCode)) {
+            return "VM_CONFLICT";
+        }
+        if (httpStatus >= 500 || "HTTP_500".equals(errorCode)) {
+            return "VM_INTERNAL_ERROR";
+        }
+        if (httpStatus >= 400) {
+            return "VM_CLIENT_ERROR";
+        }
+        return "VM_CALL_FAILED";
     }
 
 }

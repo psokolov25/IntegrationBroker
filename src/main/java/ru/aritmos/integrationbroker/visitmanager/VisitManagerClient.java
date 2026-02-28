@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Singleton;
 import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
+import ru.aritmos.integrationbroker.core.CorrelationContext;
 import ru.aritmos.integrationbroker.core.RestOutboxService;
 import ru.aritmos.integrationbroker.core.OAuth2ClientCredentialsService;
 import ru.aritmos.integrationbroker.core.SensitiveDataSanitizer;
@@ -573,14 +574,9 @@ public class VisitManagerClient {
                                                               String correlationId,
                                                               String requestId) {
         java.util.HashMap<String, String> out = headers == null ? new java.util.HashMap<>() : new java.util.HashMap<>(headers);
-        String corr = safe(correlationId, null);
-        String req = safe(requestId, null);
-        if (corr != null) {
-            out.putIfAbsent("X-Correlation-Id", corr);
-        }
-        if (req != null) {
-            out.putIfAbsent("X-Request-Id", req);
-        }
+        CorrelationContext ctx = CorrelationContext.resolve(correlationId, requestId);
+        out.putIfAbsent("X-Correlation-Id", ctx.correlationId());
+        out.putIfAbsent("X-Request-Id", ctx.requestId());
         return out;
     }
 

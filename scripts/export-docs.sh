@@ -5,10 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT_DIR/build/docs"
 mkdir -p "$OUT_DIR"
 
-if ! command -v pandoc >/dev/null 2>&1; then
-  echo "Ошибка: pandoc не найден. Установите pandoc и повторите попытку." >&2
-  exit 1
-fi
+BUNDLE_OUT="$OUT_DIR/integration-broker-docs.bundle.md"
+MANIFEST_OUT="$OUT_DIR/integration-broker-docs.manifest.txt"
 
 mapfile -t PLAYBOOK_FILES < <(find "$ROOT_DIR/docs/playbooks" -maxdepth 1 -name '*.md' | sort)
 mapfile -t GUIDE_FILES < <(find "$ROOT_DIR/docs/guides" -maxdepth 1 -name '*.md' | sort)
@@ -16,37 +14,31 @@ mapfile -t ROADMAP_FILES < <(find "$ROOT_DIR/docs/roadmap" -maxdepth 1 -name '*.
 
 INPUT_FILES=("$ROOT_DIR/README.md" "${PLAYBOOK_FILES[@]}" "${GUIDE_FILES[@]}" "${ROADMAP_FILES[@]}")
 
-DOCX_OUT="$OUT_DIR/integration-broker-docs.docx"
-PDF_OUT="$OUT_DIR/integration-broker-docs.pdf"
+printf '# Integration Broker — Documentation Bundle\n\n' > "$BUNDLE_OUT"
+printf '# Manifest\n' > "$MANIFEST_OUT"
 
-pandoc \
-  --from gfm \
-  --toc \
-  --toc-depth=3 \
-  --metadata title="Integration Broker — Документация" \
-  --output "$DOCX_OUT" \
-  "${INPUT_FILES[@]}"
-
-PDF_ENGINE=""
-for candidate in wkhtmltopdf weasyprint xelatex; do
-  if command -v "$candidate" >/dev/null 2>&1; then
-    PDF_ENGINE="$candidate"
-    break
-  fi
+for file in "${INPUT_FILES[@]}"; do
+  rel_path="${file#"$ROOT_DIR/"}"
+  printf '%s\n' "$rel_path" >> "$MANIFEST_OUT"
+  printf '\n---\n\n## Source: `%s`\n\n' "$rel_path" >> "$BUNDLE_OUT"
+  cat "$file" >> "$BUNDLE_OUT"
+  printf '\n' >> "$BUNDLE_OUT"
 done
 
-if [[ -n "$PDF_ENGINE" ]]; then
+if command -v pandoc >/dev/null 2>&1; then
+  HTML_OUT="$OUT_DIR/integration-broker-docs.html"
   pandoc \
     --from gfm \
     --toc \
     --toc-depth=3 \
-    --pdf-engine "$PDF_ENGINE" \
-    --metadata title="Integration Broker — Документация" \
-    --output "$PDF_OUT" \
-    "${INPUT_FILES[@]}"
-  echo "PDF экспортирован: $PDF_OUT"
+    --standalone \
+    --metadata title="Integration Broker — Documentation" \
+    --output "$HTML_OUT" \
+    "$BUNDLE_OUT"
+  echo "HTML экспортирован: $HTML_OUT"
 else
-  echo "Предупреждение: PDF-движок не найден (wkhtmltopdf/weasyprint/xelatex). DOCX создан, PDF пропущен." >&2
+  echo "Предупреждение: pandoc не найден. HTML экспорт пропущен, Markdown bundle создан." >&2
 fi
 
-echo "DOCX экспортирован: $DOCX_OUT"
+echo "Markdown bundle экспортирован: $BUNDLE_OUT"
+echo "Manifest экспортирован: $MANIFEST_OUT"

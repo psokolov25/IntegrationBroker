@@ -159,6 +159,60 @@ class QualityAndGroovyTest {
 
         InboundProcessingService.ProcessingResult res = processingService.process(env);
         assertEquals("LOCKED", res.outcome(), "TEST_EXPECTED: при IN_PROGRESS и неистёкшем lock_until ожидается LOCKED");
+
+        IdempotencyService.IdempotencyRecord rec = idempotencyService.get(d1.idemKey());
+        assertNotNull(rec, "TEST_EXPECTED: запись idempotency должна существовать");
+        assertEquals("LOCKED", rec.skippedReason(), "TEST_EXPECTED: skippedReason должен фиксироваться как LOCKED");
+    }
+
+    @Test
+    void shouldSetSkippedReasonDuplicateAfterSecondProcess() {
+        InboundEnvelope env = buildEnvelope("msg-duplicate-1");
+
+        InboundProcessingService.ProcessingResult first = processingService.process(env);
+        assertEquals("PROCESSED", first.outcome());
+
+        InboundProcessingService.ProcessingResult second = processingService.process(env);
+        assertEquals("SKIP_COMPLETED", second.outcome());
+
+        IdempotencyService.IdempotencyRecord rec = idempotencyService.get(first.idempotencyKey());
+        assertNotNull(rec, "TEST_EXPECTED: запись idempotency должна существовать");
+        assertEquals("DUPLICATE", rec.skippedReason(), "TEST_EXPECTED: skippedReason должен фиксироваться как DUPLICATE");
+    }
+
+    @Test
+    void shouldRejectInvalidProvidedIdempotencyKeyPattern() {
+        InboundEnvelope env = new InboundEnvelope(
+                InboundEnvelope.Kind.EVENT,
+                "demo.event",
+                objectMapper.valueToTree(Map.of("hello", "world")),
+                Map.of("Idempotency-Key", "bad-key-format"),
+                "msg-invalid-idem",
+                "corr-invalid-idem",
+                "BR-001",
+                "operator-1",
+                Map.of("channel", "REST")
+        );
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> processingService.process(env));
+        assertTrue(ex.getMessage().contains("source:flow:externalId"));
+    }
+
+    @Test
+    void shouldAllowManualUnlockForInProgressRecord() {
+        RuntimeConfigStore.RuntimeConfig cfg = configStore.getEffective();
+        InboundEnvelope env = buildEnvelope("msg-manual-unlock");
+
+        IdempotencyService.IdempotencyDecision d1 = idempotencyService.decide(env, cfg.idempotency());
+        assertEquals(IdempotencyService.Decision.PROCESS, d1.decision());
+
+        boolean unlocked = idempotencyService.manualUnlock(d1.idemKey(), "qa.operator", "stuck processing in test");
+        assertTrue(unlocked, "TEST_EXPECTED: manual unlock должен быть успешен для IN_PROGRESS записи");
+
+        IdempotencyService.IdempotencyRecord rec = idempotencyService.get(d1.idemKey());
+        assertNotNull(rec, "TEST_EXPECTED: запись idempotency должна существовать");
+        assertEquals("FAILED", rec.status(), "TEST_EXPECTED: manual unlock переводит запись в FAILED");
+        assertEquals("EXPIRED", rec.skippedReason(), "TEST_EXPECTED: skippedReason должен фиксироваться как EXPIRED");
     }
 
     @Test
