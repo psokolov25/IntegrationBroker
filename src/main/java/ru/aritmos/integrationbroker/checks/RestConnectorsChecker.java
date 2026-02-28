@@ -1,6 +1,7 @@
 package ru.aritmos.integrationbroker.checks;
 
 import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
+import ru.aritmos.integrationbroker.core.OAuth2ClientCredentialsService;
 
 import jakarta.inject.Singleton;
 
@@ -24,9 +25,11 @@ import java.util.Map;
 public class RestConnectorsChecker {
 
     private final RuntimeConfigStore configStore;
+    private final OAuth2ClientCredentialsService oauth2Service;
 
-    public RestConnectorsChecker(RuntimeConfigStore configStore) {
+    public RestConnectorsChecker(RuntimeConfigStore configStore, OAuth2ClientCredentialsService oauth2Service) {
         this.configStore = configStore;
+        this.oauth2Service = oauth2Service;
     }
 
     /**
@@ -68,6 +71,16 @@ public class RestConnectorsChecker {
             }
 
             try {
+                if (cfg.isValidateOauth2TokenEndpoint()
+                        && c.auth() != null
+                        && c.auth().type() == RuntimeConfigStore.RestConnectorAuthType.OAUTH2_CLIENT_CREDENTIALS) {
+                    String token = oauth2Service == null ? null : oauth2Service.resolveAccessToken(c.auth());
+                    if (token == null || token.isBlank()) {
+                        failures.add("restConnectors['" + id + "']: не удалось получить OAuth2 access token");
+                        continue;
+                    }
+                }
+
                 HttpRequest.Builder b = HttpRequest.newBuilder()
                         .GET()
                         .uri(uri)
@@ -121,6 +134,12 @@ public class RestConnectorsChecker {
                     String v = auth.basicUsername() + ":" + auth.basicPassword();
                     String encoded = java.util.Base64.getEncoder().encodeToString(v.getBytes(StandardCharsets.UTF_8));
                     b.header("Authorization", "Basic " + encoded);
+                }
+            }
+            case OAUTH2_CLIENT_CREDENTIALS -> {
+                String token = oauth2Service == null ? null : oauth2Service.resolveAccessToken(auth);
+                if (token != null && !token.isBlank()) {
+                    b.header("Authorization", "Bearer " + token);
                 }
             }
         }

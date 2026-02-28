@@ -9,6 +9,7 @@ import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.PathVariable;
 import io.micronaut.http.annotation.Post;
 import io.micronaut.http.annotation.Produces;
+import io.micronaut.security.annotation.Secured;
 import io.micronaut.serde.annotation.Serdeable;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -226,6 +227,7 @@ public class InboundController {
  * <p>
  * В дальнейшем Admin API будет расширен разделами outbox/rest-outbox/DLQ/replay.
  */
+@Secured("IB_ADMIN")
 @Controller("/admin/idempotency")
 @Tag(name = "Integration Broker — Admin API (Idempotency)", description = "Просмотр записей идемпотентности и диагностика повторных доставок")
 class AdminIdempotencyController {
@@ -284,6 +286,7 @@ class AdminIdempotencyController {
 /**
  * Admin API: inbound DLQ и replay.
  */
+@Secured("IB_ADMIN")
 @Controller("/admin/dlq")
 @Tag(name = "Integration Broker — Admin API (Inbound DLQ)", description = "Просмотр сообщений в inbound DLQ и выполнение replay")
 class AdminInboundDlqController {
@@ -438,6 +441,7 @@ class AdminInboundDlqController {
  *   <li>replay переводит запись в PENDING и назначает ближайшую попытку.</li>
  * </ul>
  */
+@Secured("IB_ADMIN")
 @Controller("/admin/outbox/messaging")
 @Tag(name = "Integration Broker — Admin API (Messaging Outbox)", description = "Просмотр записей messaging outbox и ручной replay")
 class AdminMessagingOutboxController {
@@ -518,6 +522,7 @@ class AdminMessagingOutboxController {
 /**
  * Admin API: REST outbox и replay.
  */
+@Secured("IB_ADMIN")
 @Controller("/admin/outbox/rest")
 @Tag(name = "Integration Broker — Admin API (REST Outbox)", description = "Просмотр записей REST outbox и ручной replay")
 class AdminRestOutboxController {

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Singleton;
 import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
 import ru.aritmos.integrationbroker.core.RestOutboxService;
+import ru.aritmos.integrationbroker.core.OAuth2ClientCredentialsService;
 import ru.aritmos.integrationbroker.core.SensitiveDataSanitizer;
 
 import java.net.URI;
@@ -42,14 +43,16 @@ public class VisitManagerClient {
     private final RestOutboxService restOutboxService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final OAuth2ClientCredentialsService oauth2Service;
 
-    public VisitManagerClient(RuntimeConfigStore configStore, RestOutboxService restOutboxService, ObjectMapper objectMapper) {
+    public VisitManagerClient(RuntimeConfigStore configStore, RestOutboxService restOutboxService, ObjectMapper objectMapper, OAuth2ClientCredentialsService oauth2Service) {
         this.configStore = configStore;
         this.restOutboxService = restOutboxService;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
+        this.oauth2Service = oauth2Service;
     }
 
     /**
@@ -517,7 +520,7 @@ public class VisitManagerClient {
         return b + p;
     }
 
-    private static Map<String, String> buildAuthHeaders(RuntimeConfigStore.RestConnectorAuth auth) {
+    private Map<String, String> buildAuthHeaders(RuntimeConfigStore.RestConnectorAuth auth) {
         if (auth == null || auth.type() == null) {
             return Map.of();
         }
@@ -543,6 +546,13 @@ public class VisitManagerClient {
                     yield Map.of();
                 }
                 yield Map.of(name, key);
+            }
+            case OAUTH2_CLIENT_CREDENTIALS -> {
+                String token = oauth2Service == null ? null : oauth2Service.resolveAccessToken(auth);
+                if (token == null) {
+                    yield Map.of();
+                }
+                yield Map.of("Authorization", "Bearer " + token);
             }
         };
     }

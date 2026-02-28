@@ -266,6 +266,7 @@ public class VisionLabsEventsPoller {
                 }
                 yield Map.of(hn, a.apiKey());
             }
+            case OAUTH2_CLIENT_CREDENTIALS -> Map.of();
         };
     }
 

@@ -1,3 +1,7 @@
+micronaut:
+  security:
+    enabled: false
+
 # Тестовый профиль: in-memory H2 в режиме совместимости с Postgres.
 datasources:
   default:

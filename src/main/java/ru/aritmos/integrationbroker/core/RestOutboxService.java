@@ -46,11 +46,13 @@ public class RestOutboxService {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final RestOutboundSender sender;
+    private final OAuth2ClientCredentialsService oauth2Service;
 
-    public RestOutboxService(DataSource dataSource, ObjectMapper objectMapper, RestOutboundSender sender) {
+    public RestOutboxService(DataSource dataSource, ObjectMapper objectMapper, RestOutboundSender sender, OAuth2ClientCredentialsService oauth2Service) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.sender = sender;
+        this.oauth2Service = oauth2Service;
     }
 
     /**
@@ -547,7 +549,7 @@ private static Map<String, String> mergeHeaders(Map<String, String> a, Map<Strin
     return out;
 }
 
-private static Map<String, String> buildAuthHeaders(RuntimeConfigStore.RestConnectorAuth auth) {
+private Map<String, String> buildAuthHeaders(RuntimeConfigStore.RestConnectorAuth auth) {
     if (auth == null || auth.type() == null) {
         return Collections.emptyMap();
     }
@@ -566,16 +568,21 @@ private static Map<String, String> buildAuthHeaders(RuntimeConfigStore.RestConne
             if (auth.bearerToken() == null || auth.bearerToken().isBlank()) {
                 yield Collections.emptyMap();
             }
-            // В outbox и логах токен не раскрываем.
             yield Map.of("Authorization", "Bearer " + auth.bearerToken().trim());
         }
         case BASIC -> {
             if (auth.basicUsername() == null || auth.basicPassword() == null) {
                 yield Collections.emptyMap();
             }
-            // В outbox и логах креды не раскрываем.
             String token = java.util.Base64.getEncoder().encodeToString((auth.basicUsername() + ":" + auth.basicPassword()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                yield Map.of("Authorization", "Basic " + token);
+            yield Map.of("Authorization", "Basic " + token);
+        }
+        case OAUTH2_CLIENT_CREDENTIALS -> {
+            String accessToken = oauth2Service == null ? null : oauth2Service.resolveAccessToken(auth);
+            if (accessToken == null || accessToken.isBlank()) {
+                yield Collections.emptyMap();
+            }
+            yield Map.of("Authorization", "Bearer " + accessToken);
         }
     };
 }

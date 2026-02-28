@@ -6,12 +6,14 @@ import io.micronaut.http.annotation.Consumes;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Post;
 import io.micronaut.http.annotation.Produces;
+import io.micronaut.security.annotation.Secured;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import ru.aritmos.integrationbroker.groovy.GroovyToolingService;
 
 import java.util.Map;
 
+@Secured({"IB_FLOW_EDITOR", "IB_ADMIN"})
 @Controller("/admin/groovy-tooling")
 @Tag(name = "Groovy Tooling", description = "Валидация, отладка и эмуляция Groovy-скриптов для frontend IDE")
 public class GroovyToolingController {

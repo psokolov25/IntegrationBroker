@@ -360,7 +360,7 @@ class VisitManagerGroovyAdapterTest {
         String lastCreateVisitEntryPointId;
 
         StubVisitManagerClient() {
-            super(null, null, new ObjectMapper());
+            super(null, null, new ObjectMapper(), null);
         }
 
 

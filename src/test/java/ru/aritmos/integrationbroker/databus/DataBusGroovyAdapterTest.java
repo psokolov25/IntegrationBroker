@@ -359,7 +359,7 @@ class DataBusGroovyAdapterTest {
         Object lastBody;
 
         StubRestOutboxService() {
-            super(null, null, null);
+            super(null, null, null, null);
         }
 
         @Override

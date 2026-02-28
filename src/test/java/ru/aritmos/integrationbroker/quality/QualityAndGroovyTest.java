@@ -531,7 +531,7 @@ class QualityAndGroovyTest {
                 kc,
                 new RuntimeConfigStore.MessagingOutboxConfig(false, "ON_FAILURE", 1, 1, 1, 1),
                 new RuntimeConfigStore.RestOutboxConfig(false, "ON_FAILURE", 1, 1, 1, 1, "Idempotency-Key", "409"),
-                Map.of("keycloakProxy", new RuntimeConfigStore.RestConnectorConfig("http://example", new RuntimeConfigStore.RestConnectorAuth(RuntimeConfigStore.RestConnectorAuthType.NONE, null, null, null, null, null))),
+                Map.of("keycloakProxy", new RuntimeConfigStore.RestConnectorConfig("http://example", new RuntimeConfigStore.RestConnectorAuth(RuntimeConfigStore.RestConnectorAuthType.NONE, null, null, null, null, null, null, null, null, null, null))),
                 RuntimeConfigStore.CrmConfig.disabled(),
                 RuntimeConfigStore.MedicalConfig.disabled(),
                 RuntimeConfigStore.AppointmentConfig.disabled(),
