@@ -61,6 +61,113 @@
 - zod (валидация DTO в UI)
 - Apache ECharts/Recharts (графики мониторинга)
 
+### 2.3. Базовая структура React-приложения (обязательно для удобства frontend-разработки)
+
+Рекомендуется **feature-first структура** с отдельными слоями `app/shared/entities/features/widgets/pages`.
+Такой подход упрощает масштабирование, code review и онбординг новых frontend-разработчиков.
+
+```text
+ui/
+  src/
+    app/
+      providers/               # QueryProvider, RouterProvider, ThemeProvider, AuthProvider
+      routes/                  # централизованная маршрутизация
+      store/                   # root-store (если нужен глобальный state)
+      styles/                  # глобальные стили, токены темы
+    pages/
+      flow-catalog/
+      groovy-workbench/
+      operations/
+      settings/
+      monitoring/
+    widgets/
+      flow-list/
+      trace-table/
+      dlq-panel/
+      outbox-panel/
+    features/
+      flow-validate/
+      flow-emulate/
+      config-publish/
+      dlq-replay/
+      connector-health-check/
+    entities/
+      flow/
+      connector/
+      message/
+      audit-event/
+      identity/
+    shared/
+      api/                     # HTTP clients + typed API contracts
+      lib/                     # утилиты, formatters, guards
+      config/                  # env/config constants
+      ui/                      # дизайн-система (кнопки, таблицы, формы)
+      model/                   # общие типы и схемы zod
+      hooks/
+      assets/
+    main.tsx
+```
+
+Ключевые правила:
+
+1. `pages` собирают страницу из `widgets/features/entities`, но не содержат сложной бизнес-логики.
+2. `features` содержат законченные пользовательские действия (validate, emulate, replay), которые можно переиспользовать в разных `pages`.
+3. `entities` содержат только доменные модели и UI-представления сущностей без оркестрации сценариев.
+4. `shared` — только переиспользуемая инфраструктура (без доменной специфики).
+5. Запрещены прямые импорты «через слои» в обратную сторону (например, `shared` → `features`).
+
+### 2.4. Стандарты файлов и нейминга
+
+- Компоненты: `PascalCase.tsx` (`FlowCatalogPage.tsx`, `TraceTable.tsx`).
+- Хуки: `useXxx.ts` (`useFlowCatalogFilters.ts`).
+- API-клиенты: `xxx.api.ts` (`groovyTooling.api.ts`).
+- Схемы: `xxx.schema.ts` (`runtimeConfig.schema.ts`).
+- Типы: `xxx.types.ts` (или co-locate рядом со схемой).
+- Стили: предпочтительно CSS Modules или styled-system с единым theme-токеном.
+
+Для каждого feature желательно использовать co-location:
+
+```text
+features/flow-emulate/
+  ui/EmulateButton.tsx
+  model/useEmulateFlow.ts
+  api/emulateFlow.api.ts
+  lib/mapEmulationResult.ts
+  index.ts
+```
+
+### 2.5. Границы ответственности состояния
+
+- **TanStack Query**: server state (запросы к IB API, кеш, refetch).
+- **Zustand/Redux Toolkit**: UI state (фильтры, видимость панелей, layout).
+- **Локальный state**: краткоживущие состояния формы и взаимодействия компонентов.
+
+Правило: не дублировать один и тот же state в Query + глобальном store.
+
+### 2.6. Контракты между UI и backend
+
+- Все DTO описываются через `zod` (`schema` + `inferred types`).
+- Любой backend-ответ проходит runtime-валидацию в `shared/api`.
+- Ошибки API нормализуются в единый формат (`code`, `message`, `details`, `correlationId`).
+- `X-Correlation-Id` и `X-Request-Id` должны прокидываться во все вызовы tooling/operations API.
+
+### 2.7. Минимальные требования к качеству frontend-кода
+
+- ESLint + Prettier + TypeScript strict mode.
+- Unit-тесты на `features/entities/shared/lib`.
+- Component-тесты для критичных UI-сценариев (`validate/emulate/replay`).
+- E2E smoke (авторизация, открытие страниц, validate/emulate happy-path).
+- CI-гейт: lint + typecheck + test + build.
+
+### 2.8. Пошаговый roadmap внедрения структуры
+
+1. Создать каркас `app/shared/entities/features/widgets/pages`.
+2. Перенести API-клиенты в `shared/api` и типизировать DTO через zod.
+3. Выделить key-features: `flow-validate`, `flow-emulate`, `dlq-replay`, `config-publish`.
+4. Унифицировать таблицы/формы через `shared/ui`.
+5. Добавить storybook (опционально) для UI-kit и сложных виджетов.
+6. Зафиксировать архитектурные правила линтером импортов (например, eslint boundaries).
+
 ## 3. Backend API для IDE/эмуляции
 
 В IB добавлен tooling API:
@@ -118,6 +225,88 @@
 1. **Local mock mode** (через `mocks` в `/emulate`) — быстрый unit-style прогон.
 2. **Hybrid mode** — часть alias мокируется, часть ходит в реальные sandbox-среды.
 3. **Record/replay mode** (roadmap) — запись реальных ответов и повтор в regression suite.
+
+### 5.1. Полное покрытие эмуляции внешних систем и коннекторов
+
+Workbench должен уметь эмулировать не только доменные адаптеры, но и **все транспортные коннекторы**:
+
+1. **REST-коннекторы (`rest`)**
+   - мок `status/body/headers`, задержки (`latencyMs`), таймауты и сетевые ошибки,
+   - проверка retry/backoff/circuit-breaker сценариев,
+   - эмуляция auth-потоков (Bearer/API-key/basic/mTLS-предусловия).
+
+2. **Шины данных и event-bus (DataBus, внешние bus)**
+   - публикация/доставка событий по `type/destination/topic`,
+   - эмуляция fan-out и route в несколько шин,
+   - ошибки маршрутизации, частичная доставка, duplicate delivery.
+
+3. **Брокеры сообщений (`msg`)**
+   - inbound/outbound очереди и топики,
+   - ack/nack/requeue, DLQ перевод, TTL/expiration,
+   - задержки потребления, out-of-order delivery, повторная доставка.
+
+4. **Внешние доменные системы**
+   - CRM, MIS/medical, Appointment/Prebooking, VisitManager, Identity providers,
+   - шаблоны happy-path + negative-path (4xx/5xx/validation),
+   - эмуляция rate-limit и деградации внешних API.
+
+5. **Внутренние сервисные алиасы**
+   - `branch`, `identity`, `rest`, `msg`, `bus` (если выделен отдельным адаптером),
+   - сценарии fallback и graceful degradation,
+   - проверка корреляции (`X-Correlation-Id`, `X-Request-Id`) и idempotency-key.
+
+### 5.2. Единый формат mock-сценариев
+
+Рекомендуется поддерживать единый descriptor профиля эмуляции:
+
+```json
+{
+  "name": "vm+databus-hybrid",
+  "mode": "hybrid",
+  "mocks": {
+    "visit.createVisitRest": {
+      "result": {"success": true, "body": {"id": "V-100"}},
+      "latencyMs": 120
+    },
+    "bus.publishEvent": {
+      "result": {"success": true, "status": "ROUTED"},
+      "simulate": {"fanOut": 2, "duplicateDelivery": false}
+    },
+    "msg.send": {
+      "result": {"success": false, "error": "BROKER_TIMEOUT"},
+      "simulate": {"retryable": true, "attempt": 1}
+    },
+    "rest.call": {
+      "result": {"status": 503, "body": {"error": "upstream unavailable"}},
+      "simulate": {"timeoutMs": 3000}
+    }
+  }
+}
+```
+
+Минимальные поля для каждого mock:
+- `result` — полезная нагрузка/ошибка,
+- `latencyMs|timeoutMs` — управление временем,
+- `simulate` — транспортные особенности (duplicate, ack/nack, route, retryable),
+- `assert` (опционально) — ожидания по headers/correlation/idempotency.
+
+### 5.3. UI-функции для продвинутой эмуляции транспорта
+
+- конструктор сценариев доставки: `publish -> broker -> consumer -> DLQ/replay`,
+- переключатели fault injection: timeout, connection reset, throttling, malformed payload,
+- визуализация жизненного цикла сообщения (ingress → processing → outbox → sent/dead),
+- проверка гарантии доставки: at-most-once / at-least-once / effectively-once,
+- one-click regression run по сохранённому mock profile.
+
+### 5.4. Обязательные проверки в emulate-run
+
+При каждом `Emulate` UI должен уметь валидировать:
+
+1. все внешние вызовы содержат correlation headers,
+2. события на bus/broker содержат envelope с `type/source/timestamp/correlationId`,
+3. retry выполняется только для retryable ошибок,
+4. при исчерпании ретраев формируется корректный переход в DLQ/outbox DEAD,
+5. итоговый trace экспортируется в JSON для CI/regression-пайплайнов.
 
 ## 6. Центр настроек (полный контур)
 
@@ -239,4 +428,3 @@ Frontend Workbench должен поддерживать генерацию и �
 - live-validation и preview итогового JSON payload,
 - безопасная работа с secret-полями (masked UI + no raw logging),
 - режим импорт/экспорт шаблонов форм для повторного использования.
-
