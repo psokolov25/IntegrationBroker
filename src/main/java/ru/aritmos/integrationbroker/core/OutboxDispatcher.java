@@ -1,6 +1,7 @@
 package ru.aritmos.integrationbroker.core;
 
 import io.micronaut.context.annotation.Requires;
+import io.micronaut.context.annotation.Value;
 import io.micronaut.scheduling.annotation.Scheduled;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
@@ -35,6 +36,8 @@ public class OutboxDispatcher {
     private final MessagingOutboxService messagingOutboxService;
     private final RestOutboxService restOutboxService;
     private final MessagingProviderRegistry providerRegistry;
+    @Value("${integrationbroker.outbound.dry-run:false}")
+    protected boolean outboundDryRun;
 
     public OutboxDispatcher(RuntimeConfigStore configStore,
                             MessagingOutboxService messagingOutboxService,
@@ -51,6 +54,9 @@ public class OutboxDispatcher {
      */
     @Scheduled(fixedDelay = "${integrationbroker.dispatcher.fixed-delay:2s}")
     public void dispatchMessaging() {
+        if (outboundDryRun) {
+            return;
+        }
         RuntimeConfigStore.RuntimeConfig cfg = configStore.getEffective();
         RuntimeConfigStore.MessagingOutboxConfig oc = cfg.messagingOutbox();
         if (oc == null || !oc.enabled()) {
@@ -113,6 +119,9 @@ public class OutboxDispatcher {
      */
     @Scheduled(fixedDelay = "${integrationbroker.dispatcher.fixed-delay:2s}")
     public void dispatchRest() {
+        if (outboundDryRun) {
+            return;
+        }
         RuntimeConfigStore.RuntimeConfig cfg = configStore.getEffective();
         RuntimeConfigStore.RestOutboxConfig oc = cfg.restOutbox();
         if (oc == null || !oc.enabled()) {

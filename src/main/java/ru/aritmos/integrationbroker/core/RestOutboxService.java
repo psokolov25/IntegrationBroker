@@ -2,6 +2,7 @@ package ru.aritmos.integrationbroker.core;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micronaut.context.annotation.Value;
 import io.micronaut.serde.annotation.Serdeable;
 import jakarta.inject.Singleton;
 import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
@@ -47,6 +48,8 @@ public class RestOutboxService {
     private final ObjectMapper objectMapper;
     private final RestOutboundSender sender;
     private final OAuth2ClientCredentialsService oauth2Service;
+    @Value("${integrationbroker.outbound.dry-run:false}")
+    protected boolean outboundDryRun;
 
     public RestOutboxService(DataSource dataSource, ObjectMapper objectMapper, RestOutboundSender sender, OAuth2ClientCredentialsService oauth2Service) {
         this.dataSource = dataSource;
@@ -69,6 +72,13 @@ public class RestOutboxService {
                      String sourceMessageId,
                      String correlationId,
                      String idemKey) {
+        if (outboundDryRun) {
+            Mode dryRunMode = cfg == null ? Mode.ON_FAILURE : parseMode(cfg.mode());
+            if (cfg == null || !cfg.enabled() || dryRunMode == Mode.ON_FAILURE) {
+                return 0;
+            }
+        }
+
         if (cfg == null || !cfg.enabled()) {
             // Если outbox выключен — выполняем прямой вызов.
             String idemHeader = cfg == null ? "Idempotency-Key" : cfg.idempotencyHeaderName();
@@ -121,6 +131,13 @@ public long callViaConnector(RuntimeConfigStore.RuntimeConfig effective,
                              String sourceMessageId,
                              String correlationId,
                              String idemKey) {
+
+    if (outboundDryRun) {
+        Mode dryRunMode = cfg == null ? Mode.ON_FAILURE : parseMode(cfg.mode());
+        if (cfg == null || !cfg.enabled() || dryRunMode == Mode.ON_FAILURE) {
+            return 0;
+        }
+    }
 
     RuntimeConfigStore.RestConnectorConfig connector = (effective == null || effective.restConnectors() == null)
             ? null
