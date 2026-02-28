@@ -893,7 +893,7 @@ class VisitManagerApiImplTest {
         private java.util.List<String> lastServiceIds;
 
         private StubVisitManagerClient() {
-            super(null, null, null);
+            super(null, null, null, null);
         }
 
         @Override

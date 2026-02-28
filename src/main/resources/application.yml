@@ -4,6 +4,15 @@ micronaut:
   server:
     port: 8088
     max-request-size: 20MB
+  security:
+    enabled: ${INTEGRATIONBROKER_SECURITY_ENABLED:true}
+    authentication: bearer
+    token:
+      jwt:
+        signatures:
+          jwks:
+            keycloak:
+              url: ${KEYCLOAK_JWKS_URL:http://localhost:8080/realms/master/protocol/openid-connect/certs}
   router:
     static-resources:
       swagger:
@@ -79,6 +88,7 @@ integrationbroker:
       health-path: /health
       timeout-ms: 1500
       expected-status: [200, 204]
+      validate-oauth2-token-endpoint: true
 
     messaging-providers:
       # Проверка наличия и доступности провайдеров.
@@ -87,6 +97,22 @@ integrationbroker:
       fail-fast: true
       required-provider-ids: []
 
+
+  security:
+    mode: ${INTEGRATIONBROKER_SECURITY_MODE:OPEN}
+    anonymous:
+      enabled: ${INTEGRATIONBROKER_SECURITY_ANONYMOUS_ENABLED:true}
+      allow-paths:
+        - /api/inbound
+        - /api/identity/resolve
+        - /health
+        - /swagger-ui/**
+    rbac:
+      admin-role: ${INTEGRATIONBROKER_SECURITY_RBAC_ADMIN_ROLE:IB_ADMIN}
+      operator-role: ${INTEGRATIONBROKER_SECURITY_RBAC_OPERATOR_ROLE:IB_OPERATOR}
+      flow-editor-role: ${INTEGRATIONBROKER_SECURITY_RBAC_FLOW_EDITOR_ROLE:IB_FLOW_EDITOR}
+      api-client-role: ${INTEGRATIONBROKER_SECURITY_RBAC_API_CLIENT_ROLE:IB_API_CLIENT}
+      readonly-role: ${INTEGRATIONBROKER_SECURITY_RBAC_READONLY_ROLE:IB_READONLY}
   visionlabs:
     analytics:
       kafka:

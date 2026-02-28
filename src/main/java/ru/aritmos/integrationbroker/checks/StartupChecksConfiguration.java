@@ -113,6 +113,8 @@ public class StartupChecksConfiguration {
         private int timeoutMs = 1500;
         /** список допустимых HTTP статусов (по умолчанию 200 и 204) */
         private List<Integer> expectedStatus = List.of(200, 204);
+        /** для OAuth2 коннекторов проверять доступность token endpoint и получение access token */
+        private boolean validateOauth2TokenEndpoint = true;
 
         public String getHealthPath() {
             return healthPath;
@@ -130,6 +132,14 @@ public class StartupChecksConfiguration {
             this.timeoutMs = timeoutMs;
         }
 
+
+        public boolean isValidateOauth2TokenEndpoint() {
+            return validateOauth2TokenEndpoint;
+        }
+
+        public void setValidateOauth2TokenEndpoint(boolean validateOauth2TokenEndpoint) {
+            this.validateOauth2TokenEndpoint = validateOauth2TokenEndpoint;
+        }
         public List<Integer> getExpectedStatus() {
             return expectedStatus;
         }

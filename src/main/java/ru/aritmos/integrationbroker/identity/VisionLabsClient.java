@@ -132,6 +132,9 @@ public class VisionLabsClient {
                     b.header("Authorization", "Basic " + encoded);
                 }
             }
+            case OAUTH2_CLIENT_CREDENTIALS -> {
+                // Для этого клиента OAuth2 client_credentials будет добавлен отдельной итерацией.
+            }
         }
     }
 

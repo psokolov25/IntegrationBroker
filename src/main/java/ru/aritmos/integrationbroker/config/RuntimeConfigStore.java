@@ -572,7 +572,12 @@ public class RuntimeConfigStore {
             String apiKey,
             String bearerToken,
             String basicUsername,
-            String basicPassword
+            String basicPassword,
+            String oauth2TokenUrl,
+            String oauth2ClientId,
+            String oauth2ClientSecret,
+            String oauth2Scope,
+            String oauth2Audience
     ) {
     }
 
@@ -583,7 +588,8 @@ public class RuntimeConfigStore {
         NONE,
         BASIC,
         BEARER,
-        API_KEY_HEADER
+        API_KEY_HEADER,
+        OAUTH2_CLIENT_CREDENTIALS
     }
 
     /**
