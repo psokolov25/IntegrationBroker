@@ -13,6 +13,29 @@ class VisitManagerApiImplTest {
 
 
 
+
+    @Test
+    void createVisit_shouldUseServicesEndpointClientMethod() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.createVisit(
+                "default",
+                "branch-1",
+                "ep-1",
+                java.util.List.of("svc-1", "svc-1", " svc-2 "),
+                true,
+                "seg-1",
+                Map.of("X-Req", "1"),
+                "m1",
+                "c1",
+                "i1"
+        );
+
+        assertEquals("createVisitRest", client.lastCall);
+        assertEquals(java.util.List.of("svc-1", "svc-2"), client.lastServiceIds);
+    }
+
     @Test
     void createVisitFromEvent_shouldMapVisitCreatePayload() {
         StubVisitManagerClient client = new StubVisitManagerClient();
@@ -885,6 +908,22 @@ class VisitManagerApiImplTest {
             this.lastMethod = method;
             this.lastPath = path;
             this.lastBody = body;
+            this.lastHeaders = extraHeaders;
+            return CallResult.direct(200, null);
+        }
+
+        @Override
+        public CallResult createVisitRest(String branchId,
+                                          String entryPointId,
+                                          java.util.List<String> serviceIds,
+                                          boolean printTicket,
+                                          String segmentationRuleId,
+                                          Map<String, String> extraHeaders,
+                                          String sourceMessageId,
+                                          String correlationId,
+                                          String idempotencyKey) {
+            this.lastCall = "createVisitRest";
+            this.lastServiceIds = serviceIds;
             this.lastHeaders = extraHeaders;
             return CallResult.direct(200, null);
         }

@@ -37,8 +37,25 @@ public class VisitManagerApiImpl implements VisitManagerApi {
                                            String sourceMessageId,
                                            String correlationId,
                                            String idempotencyKey) {
-        return createVisitWithParameters(target, branchId, entryPointId, serviceIds, Map.of(), printTicket, segmentationRuleId,
-                headers, sourceMessageId, correlationId, idempotencyKey);
+        if (isBlank(branchId)) {
+            return invalidArgument("branchId");
+        }
+        List<String> normalizedServiceIds = normalizeServiceIds(serviceIds);
+        if (normalizedServiceIds.isEmpty()) {
+            return invalidArgument("serviceIds");
+        }
+        VisitManagerClient.CallResult r = client.createVisitRest(
+                branchId,
+                entryPointId,
+                normalizedServiceIds,
+                printTicket,
+                segmentationRuleId,
+                normalizeHeaders(headers),
+                sourceMessageId,
+                correlationId,
+                idempotencyKey
+        );
+        return toResult(r);
     }
 
     @Override
