@@ -18,3 +18,7 @@ integrationbroker:
     enabled: false
   startup-checks:
     enabled: false
+
+kafka:
+  enabled: false
+
