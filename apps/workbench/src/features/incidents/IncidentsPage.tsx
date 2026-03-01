@@ -3,7 +3,7 @@ import { useI18n } from '../../app/I18nContext';
 const sampleIncident = {
   id: 'incident-001',
   source: 'crm',
-  message: 'Sensitive payload masked',
+  message: 'SENSITIVE_PAYLOAD_MASKED',
   payload: { customerPhone: '***', branchId: '12' }
 };
 
@@ -21,7 +21,7 @@ export function IncidentsPage() {
   };
 
   const exportMarkdown = () => {
-    const markdown = `# Incident ${sampleIncident.id}\n\n- Source: ${sampleIncident.source}\n- Message: ${sampleIncident.message}\n\n## Payload\n\n\`\`\`json\n${JSON.stringify(sampleIncident.payload, null, 2)}\n\`\`\`\n`;
+    const markdown = `# ${t('incidentsReportTitle')} ${sampleIncident.id}\n\n- ${t('incidentsSourceLabel')}: ${sampleIncident.source}\n- ${t('incidentsMessageLabel')}: ${t('incidentsSampleMaskedMessage')}\n\n## ${t('incidentsPayloadLabel')}\n\n\`\`\`json\n${JSON.stringify(sampleIncident.payload, null, 2)}\n\`\`\`\n`;
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -34,7 +34,7 @@ export function IncidentsPage() {
   return (
     <section>
       <h2>{t('incidentsTitle')}</h2>
-      <pre>{JSON.stringify(sampleIncident, null, 2)}</pre>
+      <pre>{JSON.stringify({ ...sampleIncident, message: t('incidentsSampleMaskedMessage') }, null, 2)}</pre>
       <div className="actions">
         <button onClick={exportJson}>{t('exportJson')}</button>
         <button onClick={exportMarkdown}>{t('exportMarkdown')}</button>

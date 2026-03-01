@@ -18,6 +18,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Сервис REST outbox.
@@ -48,14 +50,25 @@ public class RestOutboxService {
     private final ObjectMapper objectMapper;
     private final RestOutboundSender sender;
     private final OAuth2ClientCredentialsService oauth2Service;
+    private final OutboundDryRunState outboundDryRunState;
+    private final ConcurrentHashMap<String, CircuitState> connectorCircuits = new ConcurrentHashMap<>();
     @Value("${integrationbroker.outbound.dry-run:false}")
     protected boolean outboundDryRun;
 
-    public RestOutboxService(DataSource dataSource, ObjectMapper objectMapper, RestOutboundSender sender, OAuth2ClientCredentialsService oauth2Service) {
+    public RestOutboxService(DataSource dataSource,
+                            ObjectMapper objectMapper,
+                            RestOutboundSender sender,
+                            OAuth2ClientCredentialsService oauth2Service,
+                            OutboundDryRunState outboundDryRunState) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.sender = sender;
         this.oauth2Service = oauth2Service;
+        this.outboundDryRunState = outboundDryRunState;
+    }
+
+    public RestOutboxService(DataSource dataSource, ObjectMapper objectMapper, RestOutboundSender sender, OAuth2ClientCredentialsService oauth2Service) {
+        this(dataSource, objectMapper, sender, oauth2Service, new OutboundDryRunState(false, null));
     }
 
     /**
@@ -72,7 +85,7 @@ public class RestOutboxService {
                      String sourceMessageId,
                      String correlationId,
                      String idemKey) {
-        if (outboundDryRun) {
+        if (outboundDryRunState.isDryRun(outboundDryRun)) {
             Mode dryRunMode = cfg == null ? Mode.ON_FAILURE : parseMode(cfg.mode());
             if (cfg == null || !cfg.enabled() || dryRunMode == Mode.ON_FAILURE) {
                 return 0;
@@ -132,7 +145,7 @@ public long callViaConnector(RuntimeConfigStore.RuntimeConfig effective,
                              String correlationId,
                              String idemKey) {
 
-    if (outboundDryRun) {
+    if (outboundDryRunState.isDryRun(outboundDryRun)) {
         Mode dryRunMode = cfg == null ? Mode.ON_FAILURE : parseMode(cfg.mode());
         if (cfg == null || !cfg.enabled() || dryRunMode == Mode.ON_FAILURE) {
             return 0;
@@ -155,27 +168,45 @@ public long callViaConnector(RuntimeConfigStore.RuntimeConfig effective,
     if (cfg == null || !cfg.enabled()) {
         // outbox выключен — прямой вызов
         String idemHeader = cfg == null ? "Idempotency-Key" : cfg.idempotencyHeaderName();
-        RestOutboundSender.Result r = sender.send(method, url, direct, toJson(body), idemHeader, idempotencyKey);
+        RuntimeConfigStore.CircuitBreakerPolicy cb = effectiveCircuitPolicy(connector);
+        RestOutboundSender.Result r = sendWithCircuitBreaker(connectorId, cb, () -> sender.send(method, url, direct, toJson(body), idemHeader, idempotencyKey));
         if (r.success() || isTreat4xxAsSuccess(cfg, r.httpStatus())) {
             return 0;
         }
-        int maxAttempts = cfg == null ? 10 : cfg.maxAttempts();
+        int maxAttempts = effectiveMaxAttempts(cfg, connector);
         String treat = cfg == null ? null : cfg.treat4xxAsSuccess();
         return enqueue(method, url, connectorId, path, stored, body, idempotencyKey, sourceMessageId, correlationId, idemKey, maxAttempts, treat);
     }
 
     Mode mode = parseMode(cfg.mode());
     if (mode == Mode.ALWAYS) {
-        return enqueue(method, url, connectorId, path, stored, body, idempotencyKey, sourceMessageId, correlationId, idemKey, cfg.maxAttempts(), cfg.treat4xxAsSuccess());
+        return enqueue(method, url, connectorId, path, stored, body, idempotencyKey, sourceMessageId, correlationId, idemKey, effectiveMaxAttempts(cfg, connector), cfg.treat4xxAsSuccess());
     }
 
-    RestOutboundSender.Result r = sender.send(method, url, direct, toJson(body), cfg.idempotencyHeaderName(), idempotencyKey);
+    RuntimeConfigStore.CircuitBreakerPolicy cb = effectiveCircuitPolicy(connector);
+    RestOutboundSender.Result r = sendWithCircuitBreaker(connectorId, cb, () -> sender.send(method, url, direct, toJson(body), cfg.idempotencyHeaderName(), idempotencyKey));
     if (r.success() || isTreat4xxAsSuccess(cfg, r.httpStatus())) {
         return 0;
     }
 
-    return enqueue(method, url, connectorId, path, stored, body, idempotencyKey, sourceMessageId, correlationId, idemKey, cfg.maxAttempts(), cfg.treat4xxAsSuccess());
+    return enqueue(method, url, connectorId, path, stored, body, idempotencyKey, sourceMessageId, correlationId, idemKey, effectiveMaxAttempts(cfg, connector), cfg.treat4xxAsSuccess());
 }
+
+private static int effectiveMaxAttempts(RuntimeConfigStore.RestOutboxConfig cfg,
+                                        RuntimeConfigStore.RestConnectorConfig connector) {
+        int global = cfg == null ? 10 : Math.max(1, cfg.maxAttempts());
+        if (connector == null || connector.retryPolicy() == null || connector.retryPolicy().maxAttempts() == null) {
+            return global;
+        }
+        return Math.max(1, connector.retryPolicy().maxAttempts());
+    }
+
+private static RuntimeConfigStore.CircuitBreakerPolicy effectiveCircuitPolicy(RuntimeConfigStore.RestConnectorConfig connector) {
+        if (connector == null) {
+            return null;
+        }
+        return connector.circuitBreaker();
+    }
 
 private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig cfg, int status) {
         if (cfg == null || cfg.treat4xxAsSuccess() == null || cfg.treat4xxAsSuccess().isBlank()) {
@@ -480,15 +511,71 @@ public RestOutboundSender.Result sendOnce(RestRecord record,
 
     Map<String, String> headers = mergeHeaders(storedHeaders, authHeaders);
 
-    RestOutboundSender.Result r = sender.send(record.httpMethod(), url, headers, record.bodyJson(), idempotencyHeaderName, record.idempotencyKey());
-    if (!r.success() && record.treat4xxAsSuccess() != null && !record.treat4xxAsSuccess().isBlank() && r.httpStatus() >= 400 && r.httpStatus() < 500) {
-        String s = "," + record.treat4xxAsSuccess().replaceAll("\s+", "") + ",";
-        if (s.contains("," + r.httpStatus() + ",")) {
-            return RestOutboundSender.Result.ok(r.httpStatus());
+    RuntimeConfigStore.CircuitBreakerPolicy cb = null;
+    if (record.connectorId() != null && !record.connectorId().isBlank()) {
+        RuntimeConfigStore.RestConnectorConfig connector = (effective == null || effective.restConnectors() == null)
+                ? null
+                : effective.restConnectors().get(record.connectorId());
+        cb = effectiveCircuitPolicy(connector);
+    }
+
+    final String finalUrl = url;
+    final Map<String, String> finalHeaders = headers;
+    RestOutboundSender.Result raw = sendWithCircuitBreaker(
+            record.connectorId(),
+            cb,
+            () -> sender.send(record.httpMethod(), finalUrl, finalHeaders, record.bodyJson(), idempotencyHeaderName, record.idempotencyKey())
+    );
+
+    if (!raw.success() && record.treat4xxAsSuccess() != null && !record.treat4xxAsSuccess().isBlank() && raw.httpStatus() >= 400 && raw.httpStatus() < 500) {
+        String s = "," + record.treat4xxAsSuccess().replaceAll("\\s+", "") + ",";
+        if (s.contains("," + raw.httpStatus() + ",")) {
+            return RestOutboundSender.Result.ok(raw.httpStatus());
         }
     }
-    return r;
+    return raw;
 }
+
+    private RestOutboundSender.Result sendWithCircuitBreaker(String connectorId,
+                                                          RuntimeConfigStore.CircuitBreakerPolicy cb,
+                                                          Supplier<RestOutboundSender.Result> senderCall) {
+        if (connectorId == null || connectorId.isBlank() || cb == null || !cb.enabled()) {
+            return senderCall.get();
+        }
+
+        int threshold = cb.failureThreshold() == null ? 3 : Math.max(1, cb.failureThreshold());
+        int openSec = cb.openTimeoutSec() == null ? 30 : Math.max(1, cb.openTimeoutSec());
+
+        CircuitState state = connectorCircuits.computeIfAbsent(connectorId, k -> new CircuitState());
+        Instant now = Instant.now();
+        synchronized (state) {
+            if (state.openUntil != null && now.isBefore(state.openUntil)) {
+                return RestOutboundSender.Result.fail("CIRCUIT_OPEN", "Circuit breaker open for connector " + connectorId, 503);
+            }
+        }
+
+        RestOutboundSender.Result result = senderCall.get();
+
+        synchronized (state) {
+            if (result.success()) {
+                state.failureCount = 0;
+                state.openUntil = null;
+                return result;
+            }
+            state.failureCount++;
+            if (state.failureCount >= threshold) {
+                state.failureCount = 0;
+                state.openUntil = Instant.now().plusSeconds(openSec);
+            }
+        }
+
+        return result;
+    }
+
+    private static final class CircuitState {
+        private int failureCount;
+        private Instant openUntil;
+    }
 
     private RestRecord map(ResultSet rs) throws Exception {
     long id = rs.getLong(1);

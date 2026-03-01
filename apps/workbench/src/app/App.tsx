@@ -54,6 +54,8 @@ export function App() {
     const normalized = normalizeLocale(nextLocale);
     setLocaleState(normalized);
     window.localStorage.setItem('ib.workbench.locale', normalized);
+    window.localStorage.setItem('ib.workbench.locale.explicit', 'true');
+    window.localStorage.setItem('ib.workbench.locale.pref-version', '2');
   };
 
   const handleLogin = (selectedRole: UserRole) => {

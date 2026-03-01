@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Сервис Inbound DLQ (Dead Letter Queue) для Integration Broker.
@@ -239,20 +240,56 @@ public class InboundDlqService {
      * Список DLQ.
      */
     public List<DlqRecord> list(String status, int limit) {
+        return list(status, null, null, null, limit);
+    }
+
+    /**
+     * Список DLQ с фильтрацией для batch replay.
+     * <p>
+     * Фильтры:
+     * <ul>
+     *   <li>status — статус записи (PENDING/REPLAYED/DEAD);</li>
+     *   <li>type — тип входящего сообщения;</li>
+     *   <li>branchId — отделение;</li>
+     *   <li>source — источник из sourceMeta (source/sourceSystem/system).</li>
+     * </ul>
+     */
+    public List<DlqRecord> list(String status, String type, String source, String branchId, int limit) {
         int lim = Math.min(Math.max(1, limit), 200);
         boolean filter = status != null && !status.isBlank();
+        boolean filterType = type != null && !type.isBlank();
+        boolean filterBranch = branchId != null && !branchId.isBlank();
+        boolean filterSource = source != null && !source.isBlank();
 
-        String sql = filter
-                ? "SELECT id, status, created_at, updated_at, kind, type, message_id, correlation_id, branch_id, user_id, idem_key, attempts, max_attempts, last_error_at, error_code, error_message, replayed_at FROM ib_inbound_dlq WHERE status=? ORDER BY updated_at DESC LIMIT ?"
-                : "SELECT id, status, created_at, updated_at, kind, type, message_id, correlation_id, branch_id, user_id, idem_key, attempts, max_attempts, last_error_at, error_code, error_message, replayed_at FROM ib_inbound_dlq ORDER BY updated_at DESC LIMIT ?";
+        StringBuilder sql = new StringBuilder("SELECT id, status, created_at, updated_at, kind, type, message_id, correlation_id, branch_id, user_id, idem_key, attempts, max_attempts, last_error_at, error_code, error_message, replayed_at, source_meta_json FROM ib_inbound_dlq");
+        List<String> conditions = new ArrayList<>();
+        if (filter) {
+            conditions.add("status=?");
+        }
+        if (filterType) {
+            conditions.add("type=?");
+        }
+        if (filterBranch) {
+            conditions.add("branch_id=?");
+        }
+        if (!conditions.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", conditions));
+        }
+        sql.append(" ORDER BY updated_at DESC LIMIT ?");
 
         List<DlqRecord> out = new ArrayList<>();
         try (Connection c = dataSource.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
+             PreparedStatement ps = c.prepareStatement(sql.toString())) {
 
             int idx = 1;
             if (filter) {
                 ps.setString(idx++, status);
+            }
+            if (filterType) {
+                ps.setString(idx++, type);
+            }
+            if (filterBranch) {
+                ps.setString(idx++, branchId);
             }
             ps.setInt(idx, lim);
 
@@ -263,10 +300,10 @@ public class InboundDlqService {
                     Timestamp createdAt = rs.getTimestamp(3);
                     Timestamp updatedAt = rs.getTimestamp(4);
                     String kind = rs.getString(5);
-                    String type = rs.getString(6);
+                    String recType = rs.getString(6);
                     String messageId = rs.getString(7);
                     String correlationId = rs.getString(8);
-                    String branchId = rs.getString(9);
+                    String recBranchId = rs.getString(9);
                     String userId = rs.getString(10);
                     String idemKey = rs.getString(11);
                     int attempts = rs.getInt(12);
@@ -275,14 +312,19 @@ public class InboundDlqService {
                     String errorCode = rs.getString(15);
                     String errorMessage = rs.getString(16);
                     Timestamp replayedAt = rs.getTimestamp(17);
+                    String sourceMetaJson = rs.getString(18);
+
+                    if (filterSource && !Objects.equals(source, extractSource(sourceMetaJson))) {
+                        continue;
+                    }
 
                     out.add(new DlqRecord(
                             id, st,
                             createdAt == null ? null : createdAt.toInstant().toString(),
                             updatedAt == null ? null : updatedAt.toInstant().toString(),
-                            kind, type,
+                            kind, recType,
                             messageId, correlationId,
-                            branchId, userId,
+                            recBranchId, userId,
                             idemKey,
                             attempts, maxAttempts,
                             lastErrorAt == null ? null : lastErrorAt.toInstant().toString(),
@@ -296,6 +338,22 @@ public class InboundDlqService {
         }
 
         return out;
+    }
+
+    private String extractSource(String sourceMetaJson) {
+        Map<String, Object> sourceMeta = fromJsonSafe(sourceMetaJson, new TypeReference<Map<String, Object>>() {
+        });
+        if (sourceMeta == null || sourceMeta.isEmpty()) {
+            return null;
+        }
+        Object source = sourceMeta.get("source");
+        if (source == null) {
+            source = sourceMeta.get("sourceSystem");
+        }
+        if (source == null) {
+            source = sourceMeta.get("system");
+        }
+        return source == null ? null : String.valueOf(source);
     }
 
     /**

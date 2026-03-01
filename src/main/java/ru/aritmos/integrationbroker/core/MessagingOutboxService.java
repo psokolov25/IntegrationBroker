@@ -49,15 +49,24 @@ public class MessagingOutboxService {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final MessagingProviderRegistry providerRegistry;
+    private final OutboundDryRunState outboundDryRunState;
     @Value("${integrationbroker.outbound.dry-run:false}")
     protected boolean outboundDryRun;
 
     public MessagingOutboxService(DataSource dataSource,
                                  ObjectMapper objectMapper,
-                                 MessagingProviderRegistry providerRegistry) {
+                                 MessagingProviderRegistry providerRegistry,
+                                 OutboundDryRunState outboundDryRunState) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.providerRegistry = providerRegistry;
+        this.outboundDryRunState = outboundDryRunState;
+    }
+
+    public MessagingOutboxService(DataSource dataSource,
+                                 ObjectMapper objectMapper,
+                                 MessagingProviderRegistry providerRegistry) {
+        this(dataSource, objectMapper, providerRegistry, new OutboundDryRunState(false, null));
     }
 
     /**
@@ -83,7 +92,7 @@ public class MessagingOutboxService {
                         String sourceMessageId,
                         String correlationId,
                         String idempotencyKey) {
-        if (outboundDryRun) {
+        if (outboundDryRunState.isDryRun(outboundDryRun)) {
             Mode dryRunMode = cfg == null ? Mode.ON_FAILURE : parseMode(cfg.mode());
             if (cfg == null || !cfg.enabled() || dryRunMode == Mode.ON_FAILURE) {
                 return 0;

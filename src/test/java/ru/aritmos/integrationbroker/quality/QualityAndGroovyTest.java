@@ -250,6 +250,49 @@ class QualityAndGroovyTest {
     }
 
 
+
+    @Test
+    void shouldFilterDlqListByTypeSourceAndBranch() {
+        InboundEnvelope e1 = new InboundEnvelope(
+                InboundEnvelope.Kind.EVENT,
+                "demo.filter.typeA",
+                objectMapper.valueToTree(Map.of("n", 1)),
+                Map.of("X-Request-Id", "req-f-1"),
+                "msg-dlq-filter-1",
+                "corr-dlq-filter-1",
+                "BR-FILTER-1",
+                "operator-1",
+                Map.of("source", "visionlabs")
+        );
+        InboundEnvelope e2 = new InboundEnvelope(
+                InboundEnvelope.Kind.EVENT,
+                "demo.filter.typeB",
+                objectMapper.valueToTree(Map.of("n", 2)),
+                Map.of("X-Request-Id", "req-f-2"),
+                "msg-dlq-filter-2",
+                "corr-dlq-filter-2",
+                "BR-FILTER-2",
+                "operator-2",
+                Map.of("sourceSystem", "other")
+        );
+
+        long id1 = inboundDlqService.put(e1, null, "ERR", "f1", 3, true);
+        long id2 = inboundDlqService.put(e2, null, "ERR", "f2", 3, true);
+        assertTrue(id1 > 0 && id2 > 0, "TEST_EXPECTED: записи DLQ должны быть сохранены");
+
+        List<InboundDlqService.DlqRecord> byType = inboundDlqService.list("PENDING", "demo.filter.typeA", null, null, 200);
+        assertTrue(byType.stream().anyMatch(r -> r.id() == id1), "TEST_EXPECTED: фильтр по type должен находить запись typeA");
+        assertFalse(byType.stream().anyMatch(r -> r.id() == id2), "TEST_EXPECTED: фильтр по type не должен включать typeB");
+
+        List<InboundDlqService.DlqRecord> bySource = inboundDlqService.list("PENDING", null, "visionlabs", null, 200);
+        assertTrue(bySource.stream().anyMatch(r -> r.id() == id1), "TEST_EXPECTED: фильтр по source должен находить запись source=visionlabs");
+        assertFalse(bySource.stream().anyMatch(r -> r.id() == id2), "TEST_EXPECTED: фильтр по source не должен включать sourceSystem=other");
+
+        List<InboundDlqService.DlqRecord> byBranch = inboundDlqService.list("PENDING", null, null, "BR-FILTER-2", 200);
+        assertTrue(byBranch.stream().anyMatch(r -> r.id() == id2), "TEST_EXPECTED: фильтр по branchId должен находить нужную запись");
+        assertFalse(byBranch.stream().anyMatch(r -> r.id() == id1), "TEST_EXPECTED: фильтр по branchId не должен включать другие отделения");
+    }
+
     @Test
     void shouldSanitizeHeadersInMessagingOutboxOnEnqueue() {
         long id = messagingOutboxService.enqueue(
@@ -585,7 +628,7 @@ class QualityAndGroovyTest {
                 kc,
                 new RuntimeConfigStore.MessagingOutboxConfig(false, "ON_FAILURE", 1, 1, 1, 1),
                 new RuntimeConfigStore.RestOutboxConfig(false, "ON_FAILURE", 1, 1, 1, 1, "Idempotency-Key", "409"),
-                Map.of("keycloakProxy", new RuntimeConfigStore.RestConnectorConfig("http://example", new RuntimeConfigStore.RestConnectorAuth(RuntimeConfigStore.RestConnectorAuthType.NONE, null, null, null, null, null, null, null, null, null, null))),
+                Map.of("keycloakProxy", new RuntimeConfigStore.RestConnectorConfig("http://example", new RuntimeConfigStore.RestConnectorAuth(RuntimeConfigStore.RestConnectorAuthType.NONE, null, null, null, null, null, null, null, null, null, null), null, null)),
                 RuntimeConfigStore.CrmConfig.disabled(),
                 RuntimeConfigStore.MedicalConfig.disabled(),
                 RuntimeConfigStore.AppointmentConfig.disabled(),
