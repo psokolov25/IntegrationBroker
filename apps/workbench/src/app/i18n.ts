@@ -1,4 +1,5 @@
 export const POPULAR_LOCALE_ORDER = [
+  'ru-RU',
   'en-EN',
   'zh-CN',
   'hi-IN',
@@ -7,7 +8,6 @@ export const POPULAR_LOCALE_ORDER = [
   'fr-FR',
   'bn-BD',
   'pt-BR',
-  'ru-RU',
   'id-ID',
   'ur-PK'
 ] as const;
@@ -60,6 +60,10 @@ const dictionaries = {
     metricIdempotency: 'idempotency completed-rate',
     metricDlq: 'DLQ pending',
     metricOutbox: 'outbox pending',
+    monitoringAutoRefresh: 'Автообновление (каждые 10с)',
+    monitoringReplayMetricsTitle: 'Метрики последнего batch replay',
+    monitoringReplayMetricsValues: 'Результат',
+    monitoringReplayMetricsEmpty: 'Batch replay ещё не запускался',
     runtimeTitle: 'Runtime Config',
     runtimeHint: 'Используйте dry-run проверку JSON перед сохранением runtime-конфигурации.',
     dryRun: 'Dry-run',
@@ -74,6 +78,13 @@ const dictionaries = {
     replayMessage: 'Повторить',
     filter: 'Фильтр',
     replayByFilter: 'Повторить по фильтру',
+    replayTypeFilter: 'type',
+    replaySourceFilter: 'source',
+    replayBranchFilter: 'branchId',
+    replayApplyFilters: 'Применить фильтры',
+    replayPrevPage: 'Назад',
+    replayNextPage: 'Вперёд',
+    replayPage: 'Страница',
     groovyTitle: 'Groovy Tooling',
     groovyHint: 'Валидация, эмуляция и просмотр trace для flow-скриптов.',
     validate: 'Проверить',
@@ -93,7 +104,57 @@ const dictionaries = {
     dryRunInvalid: 'Dry-run: невалидный JSON',
     dryRunWarning: 'Dry-run предупреждения',
     runtimeSavedServer: 'Конфигурация сохранена на сервере',
-    runtimeSavedLocal: 'Сервер недоступен: сохранён локальный черновик'
+    runtimeSavedLocal: 'Сервер недоступен: сохранён локальный черновик',
+    runtimeSaveBlocked: 'Сохранение отменено: dry-run вернул предупреждения',
+    runtimeAuditTitle: 'Аудит runtime-конфигурации (последние 20)',
+    integrationsSystem: 'Система',
+    integrationsLatency: 'Задержка',
+    replayApiUnavailable: 'API недоступен',
+    replayQueued: 'Повтор поставлен в очередь',
+    replayOutcomeLocked: 'Повтор не выполнен: запись заблокирована',
+    replayOutcomeDead: 'Повтор не выполнен: запись в DEAD',
+    replayOutcomeFailed: 'Повтор завершился ошибкой',
+    replayOutcomeUnknown: 'Неизвестный outcome replay',
+    replayBatchPlaceholder: 'тип/источник/филиал',
+    replayBatchResult: 'Результат batch replay',
+    replayBatchConfirm: 'Подтвердить batch replay?',
+    replayBatchFilterInvalid: 'Некорректный фильтр: используйте type/source/branchId',
+    replayCopyCorrelation: 'Копировать correlationId',
+    replayCorrelationCopied: 'correlationId скопирован',
+    replayCorrelationCopyFailed: 'Не удалось скопировать correlationId',
+    replayCorrelationMissing: 'correlationId отсутствует',
+    replayResultPayload: 'Replay result payload',
+    runtimeAuditEmpty: 'Нет записей аудита',
+    runtimeAuditExport: 'Экспорт аудита JSON',
+    runtimeDiffPreviewTitle: 'Предпросмотр изменений (dry-run diff)',
+    runtimeDiffPreviewInvalid: 'Предпросмотр недоступен: невалидный JSON',
+    runtimeDiffPreviewNoChanges: 'Новых ключей относительно серверной конфигурации не найдено',
+    integrationsHealthStatusPrefix: 'Статус health endpoint',
+    integrationsHealthUnavailable: 'Health endpoint недоступен',
+    integrationsStatusFilter: 'Фильтр статуса',
+    integrationsStatusAll: 'Все',
+    integrationsLastChecked: 'Последняя проверка',
+    incidentsReportTitle: 'Инцидент',
+    incidentsSourceLabel: 'Источник',
+    incidentsMessageLabel: 'Сообщение',
+    incidentsPayloadLabel: 'Payload',
+    incidentsSampleMaskedMessage: 'Чувствительный payload замаскирован',
+    outboundDryRunTitle: 'Outbound dry-run',
+    outboundDryRunConfigured: 'Конфиг по умолчанию',
+    outboundDryRunOverride: 'Override',
+    outboundDryRunEffective: 'Эффективное значение',
+    outboundDryRunOn: 'Включён',
+    outboundDryRunOff: 'Выключен',
+    outboundDryRunNoOverride: 'нет',
+    outboundDryRunEnable: 'Включить override',
+    outboundDryRunDisable: 'Выключить override',
+    outboundDryRunReset: 'Сбросить override',
+    outboundDryRunUpdated: 'Состояние outbound dry-run обновлено',
+    outboundDryRunUnavailable: 'Outbound dry-run API недоступен',
+    integrationsRestPoliciesTitle: 'REST-коннекторы: retry/circuit-breaker',
+    integrationsRestPoliciesEmpty: 'REST-коннекторы не настроены',
+    integrationsConnector: 'Коннектор',
+    integrationsCircuitBreaker: 'Circuit breaker'
   },
   'en-EN': {
     appTitle: 'IB Workbench',
@@ -123,6 +184,10 @@ const dictionaries = {
     metricIdempotency: 'idempotency completed-rate',
     metricDlq: 'DLQ pending',
     metricOutbox: 'outbox pending',
+    monitoringAutoRefresh: 'Auto-refresh (every 10s)',
+    monitoringReplayMetricsTitle: 'Last batch replay metrics',
+    monitoringReplayMetricsValues: 'Result',
+    monitoringReplayMetricsEmpty: 'Batch replay has not been run yet',
     runtimeTitle: 'Runtime Config',
     runtimeHint: 'Use JSON dry-run validation before saving runtime config.',
     dryRun: 'Dry-run',
@@ -137,6 +202,13 @@ const dictionaries = {
     replayMessage: 'Replay',
     filter: 'Filter',
     replayByFilter: 'Replay by filter',
+    replayTypeFilter: 'type',
+    replaySourceFilter: 'source',
+    replayBranchFilter: 'branchId',
+    replayApplyFilters: 'Apply filters',
+    replayPrevPage: 'Prev',
+    replayNextPage: 'Next',
+    replayPage: 'Page',
     groovyTitle: 'Groovy Tooling',
     groovyHint: 'Validate, emulate and inspect trace for flow scripts.',
     validate: 'Validate',
@@ -156,7 +228,57 @@ const dictionaries = {
     dryRunInvalid: 'Dry-run: invalid JSON',
     dryRunWarning: 'Dry-run warnings',
     runtimeSavedServer: 'Configuration has been saved on server',
-    runtimeSavedLocal: 'Server unavailable: local draft has been saved'
+    runtimeSavedLocal: 'Server unavailable: local draft has been saved',
+    runtimeSaveBlocked: 'Save canceled: dry-run returned warnings',
+    runtimeAuditTitle: 'Runtime Config Audit (last 20)',
+    integrationsSystem: 'System',
+    integrationsLatency: 'Latency',
+    replayApiUnavailable: 'API unavailable',
+    replayQueued: 'Replay queued',
+    replayOutcomeLocked: 'Replay skipped: record is locked',
+    replayOutcomeDead: 'Replay skipped: record is DEAD',
+    replayOutcomeFailed: 'Replay failed',
+    replayOutcomeUnknown: 'Unknown replay outcome',
+    replayBatchPlaceholder: 'type/source/branch',
+    replayBatchResult: 'Batch replay result',
+    replayBatchConfirm: 'Confirm batch replay?',
+    replayBatchFilterInvalid: 'Invalid filter: use type/source/branchId',
+    replayCopyCorrelation: 'Copy correlationId',
+    replayCorrelationCopied: 'correlationId copied',
+    replayCorrelationCopyFailed: 'Failed to copy correlationId',
+    replayCorrelationMissing: 'correlationId is missing',
+    replayResultPayload: 'Replay result payload',
+    runtimeAuditEmpty: 'No audit records',
+    runtimeAuditExport: 'Export audit JSON',
+    runtimeDiffPreviewTitle: 'Change preview (dry-run diff)',
+    runtimeDiffPreviewInvalid: 'Preview unavailable: invalid JSON',
+    runtimeDiffPreviewNoChanges: 'No new keys compared to server config',
+    integrationsHealthStatusPrefix: 'Health endpoint status',
+    integrationsHealthUnavailable: 'Health endpoint unavailable',
+    integrationsStatusFilter: 'Status filter',
+    integrationsStatusAll: 'All',
+    integrationsLastChecked: 'Last checked',
+    incidentsReportTitle: 'Incident',
+    incidentsSourceLabel: 'Source',
+    incidentsMessageLabel: 'Message',
+    incidentsPayloadLabel: 'Payload',
+    incidentsSampleMaskedMessage: 'Sensitive payload masked',
+    outboundDryRunTitle: 'Outbound dry-run',
+    outboundDryRunConfigured: 'Configured default',
+    outboundDryRunOverride: 'Override',
+    outboundDryRunEffective: 'Effective',
+    outboundDryRunOn: 'Enabled',
+    outboundDryRunOff: 'Disabled',
+    outboundDryRunNoOverride: 'none',
+    outboundDryRunEnable: 'Enable override',
+    outboundDryRunDisable: 'Disable override',
+    outboundDryRunReset: 'Reset override',
+    outboundDryRunUpdated: 'Outbound dry-run state updated',
+    outboundDryRunUnavailable: 'Outbound dry-run API unavailable',
+    integrationsRestPoliciesTitle: 'REST connectors: retry/circuit-breaker',
+    integrationsRestPoliciesEmpty: 'REST connectors are not configured',
+    integrationsConnector: 'Connector',
+    integrationsCircuitBreaker: 'Circuit breaker'
   }
 } as const;
 
@@ -185,11 +307,24 @@ export function translate(locale: LocaleCode, key: TranslationKey): string {
   return dictionaries[active][key];
 }
 
+const LOCALE_STORAGE_KEY = 'ib.workbench.locale';
+const LOCALE_EXPLICIT_KEY = 'ib.workbench.locale.explicit';
+const LOCALE_PREF_VERSION_KEY = 'ib.workbench.locale.pref-version';
+const LOCALE_PREF_VERSION = '2';
+
 export function detectInitialLocale(): LocaleCode {
-  const saved = typeof window !== 'undefined' ? window.localStorage.getItem('ib.workbench.locale') : null;
-  if (saved) {
+  const isBrowser = typeof window !== 'undefined';
+  const saved = isBrowser ? window.localStorage.getItem(LOCALE_STORAGE_KEY) : null;
+  const hasExplicitSelection = isBrowser && window.localStorage.getItem(LOCALE_EXPLICIT_KEY) === 'true';
+  const hasCurrentPreferenceVersion = isBrowser && window.localStorage.getItem(LOCALE_PREF_VERSION_KEY) === LOCALE_PREF_VERSION;
+  if (saved && hasExplicitSelection && hasCurrentPreferenceVersion) {
     return normalizeLocale(saved);
   }
-  const browserLang = typeof navigator !== 'undefined' ? navigator.language : null;
-  return normalizeLocale(browserLang);
+  if (isBrowser) {
+    // Очищаем legacy-значения, чтобы старые автоматически проставленные языки не перебивали продуктовый дефолт.
+    window.localStorage.removeItem(LOCALE_STORAGE_KEY);
+    window.localStorage.removeItem(LOCALE_EXPLICIT_KEY);
+  }
+  // Продуктовый дефолт: русский интерфейс на первом входе.
+  return DEFAULT_LOCALE;
 }

@@ -18,8 +18,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -55,6 +60,7 @@ public class RuntimeConfigStore {
 
     private final AtomicReference<RuntimeConfig> effective = new AtomicReference<>();
     private volatile String lastEtag;
+    private final Deque<RuntimeConfigAuditEntry> auditTrail = new ArrayDeque<>();
 
     public RuntimeConfigStore(ResourceResolver resourceResolver,
                              ObjectMapper objectMapper,
@@ -80,6 +86,7 @@ public class RuntimeConfigStore {
     void init() {
         RuntimeConfig local = loadLocal();
         effective.set(local);
+        appendAudit("system", "LOCAL_INIT", null, local, "Загружен baseline из local-config");
         if (remoteEnabled) {
             refreshRemote();
         }
@@ -148,6 +155,57 @@ public class RuntimeConfigStore {
     }
 
     /**
+     * Применить runtime-конфигурацию вручную (например, из Admin API).
+     */
+    public RuntimeConfig applyManual(RuntimeConfig candidate, String actor, String reason) {
+        RuntimeConfig normalized = (candidate == null ? new RuntimeConfig(
+                "manual",
+                List.of(),
+                new IdempotencyConfig(true, IdempotencyStrategy.AUTO, 60),
+                new InboundDlqConfig(true, 10, true),
+                new KeycloakProxyEnrichmentConfig(false,
+                        false,
+                        "keycloakProxy",
+                        List.of(KeycloakProxyFetchMode.USER_ID_HEADER, KeycloakProxyFetchMode.BEARER_TOKEN),
+                        "x-user-id",
+                        "Authorization",
+                        "/authorization/users/{userName}",
+                        "/authentication/userInfo",
+                        true,
+                        60,
+                        5000,
+                        true,
+                        List.of("branchId", "branch_id", "officeId")),
+                new MessagingOutboxConfig(false, "ON_FAILURE", 10, 5, 600, 50),
+                new RestOutboxConfig(false, "ON_FAILURE", 10, 5, 600, 50, "Idempotency-Key", "409"),
+                Map.of(),
+                CrmConfig.disabled(),
+                MedicalConfig.disabled(),
+                AppointmentConfig.disabled(),
+                IdentityConfig.defaultConfig(),
+                VisionLabsAnalyticsConfig.disabled(),
+                BranchResolutionConfig.defaultConfig(),
+                VisitManagerIntegrationConfig.disabled(),
+                DataBusIntegrationConfig.disabled()
+        ) : candidate).normalize();
+
+        RuntimeConfig prev = effective.getAndSet(normalized);
+        appendAudit(actor, "MANUAL_UPDATE", prev, normalized, reason == null ? "Ручное обновление" : reason);
+        return normalized;
+    }
+
+    public List<RuntimeConfigAuditEntry> getAuditTrail(int limit) {
+        int lim = Math.min(Math.max(1, limit), 500);
+        synchronized (auditTrail) {
+            List<RuntimeConfigAuditEntry> out = new ArrayList<>(auditTrail);
+            if (out.size() <= lim) {
+                return Collections.unmodifiableList(out);
+            }
+            return Collections.unmodifiableList(out.subList(out.size() - lim, out.size()));
+        }
+    }
+
+    /**
      * Строгая проверка доступности удалённой конфигурации.
      * <p>
      * Метод предназначен для режима fail-fast: если remote-config включён и помечен как критичная зависимость,
@@ -193,8 +251,9 @@ public class RuntimeConfigStore {
 
             JsonNode root = objectMapper.readTree(new String(body, StandardCharsets.UTF_8));
             JsonNode cfgNode = unwrapEnvelope(root);
-            RuntimeConfig parsed = objectMapper.treeToValue(cfgNode, RuntimeConfig.class);
-            effective.set(parsed.normalize());
+            RuntimeConfig parsed = objectMapper.treeToValue(cfgNode, RuntimeConfig.class).normalize();
+            RuntimeConfig prev = effective.getAndSet(parsed);
+            appendAudit("system", "REMOTE_ASSERT", prev, parsed, "Проверка доступности remote-config");
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
@@ -253,8 +312,9 @@ public class RuntimeConfigStore {
 
             JsonNode root = objectMapper.readTree(new String(body, StandardCharsets.UTF_8));
             JsonNode cfgNode = unwrapEnvelope(root);
-            RuntimeConfig parsed = objectMapper.treeToValue(cfgNode, RuntimeConfig.class);
-            effective.set(parsed.normalize());
+            RuntimeConfig parsed = objectMapper.treeToValue(cfgNode, RuntimeConfig.class).normalize();
+            RuntimeConfig prev = effective.getAndSet(parsed);
+            appendAudit("system", "REMOTE_REFRESH", prev, parsed, "Периодическое обновление remote-config");
         } catch (Exception e) {
             // Важно: не логируем потенциально чувствительные данные.
             log.warn("Не удалось обновить удалённую конфигурацию Integration Broker (fallback на предыдущую): {}", e.getMessage());
@@ -300,6 +360,76 @@ public class RuntimeConfigStore {
         }
 
         return candidate;
+    }
+
+    private void appendAudit(String actor,
+                             String source,
+                             RuntimeConfig previous,
+                             RuntimeConfig current,
+                             String note) {
+        String fromRev = previous == null ? null : previous.revision();
+        String toRev = current == null ? null : current.revision();
+        String whatChanged = summarizeChanges(previous, current);
+
+        RuntimeConfigAuditEntry entry = new RuntimeConfigAuditEntry(
+                java.time.Instant.now().toString(),
+                (actor == null || actor.isBlank()) ? "system" : actor,
+                source == null ? "UNKNOWN" : source,
+                fromRev,
+                toRev,
+                note == null ? "" : note,
+                whatChanged
+        );
+
+        synchronized (auditTrail) {
+            auditTrail.addLast(entry);
+            while (auditTrail.size() > 500) {
+                auditTrail.removeFirst();
+            }
+        }
+    }
+
+    private String summarizeChanges(RuntimeConfig previous, RuntimeConfig current) {
+        if (previous == null && current != null) {
+            return "initial-load";
+        }
+        if (previous != null && current == null) {
+            return "config-cleared";
+        }
+        if (previous == null) {
+            return "no-data";
+        }
+
+        List<String> changed = new ArrayList<>();
+        if (!Objects.equals(previous.revision(), current.revision())) changed.add("revision");
+        if (!Objects.equals(previous.flows(), current.flows())) changed.add("flows");
+        if (!Objects.equals(previous.idempotency(), current.idempotency())) changed.add("idempotency");
+        if (!Objects.equals(previous.inboundDlq(), current.inboundDlq())) changed.add("inboundDlq");
+        if (!Objects.equals(previous.keycloakProxy(), current.keycloakProxy())) changed.add("keycloakProxy");
+        if (!Objects.equals(previous.messagingOutbox(), current.messagingOutbox())) changed.add("messagingOutbox");
+        if (!Objects.equals(previous.restOutbox(), current.restOutbox())) changed.add("restOutbox");
+        if (!Objects.equals(previous.restConnectors(), current.restConnectors())) changed.add("restConnectors");
+        if (!Objects.equals(previous.crm(), current.crm())) changed.add("crm");
+        if (!Objects.equals(previous.medical(), current.medical())) changed.add("medical");
+        if (!Objects.equals(previous.appointment(), current.appointment())) changed.add("appointment");
+        if (!Objects.equals(previous.identity(), current.identity())) changed.add("identity");
+        if (!Objects.equals(previous.visionLabsAnalytics(), current.visionLabsAnalytics())) changed.add("visionLabsAnalytics");
+        if (!Objects.equals(previous.branchResolution(), current.branchResolution())) changed.add("branchResolution");
+        if (!Objects.equals(previous.visitManager(), current.visitManager())) changed.add("visitManager");
+        if (!Objects.equals(previous.dataBus(), current.dataBus())) changed.add("dataBus");
+
+        return changed.isEmpty() ? "no-changes" : String.join(",", changed);
+    }
+
+    public record RuntimeConfigAuditEntry(
+            String changedAt,
+            String actor,
+            String source,
+            String fromRevision,
+            String toRevision,
+            String note,
+            String changedSections
+    ) {
     }
 
     /**
@@ -557,7 +687,32 @@ public class RuntimeConfigStore {
      */
     public record RestConnectorConfig(
             String baseUrl,
-            RestConnectorAuth auth
+            RestConnectorAuth auth,
+            RetryPolicy retryPolicy,
+            CircuitBreakerPolicy circuitBreaker
+    ) {
+    }
+
+    /**
+     * Настройки circuit-breaker для REST-коннектора.
+     */
+    public record CircuitBreakerPolicy(
+            boolean enabled,
+            Integer failureThreshold,
+            Integer openTimeoutSec
+    ) {
+    }
+
+    /**
+     * Пер-connector retry policy для REST-коннекторов.
+     * <p>
+     * Позволяет переопределить глобальные параметры backoff из {@link RestOutboxConfig}
+     * для конкретного коннектора.
+     */
+    public record RetryPolicy(
+            Integer maxAttempts,
+            Integer baseDelaySec,
+            Integer maxDelaySec
     ) {
     }
 

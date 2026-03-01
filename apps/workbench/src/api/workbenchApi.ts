@@ -12,6 +12,12 @@ export interface IntegrationHealth {
   details: string;
 }
 
+export interface OutboundDryRunState {
+  configuredDefault: boolean;
+  override: boolean | null;
+  effective: boolean;
+}
+
 export interface ListResponse<T> {
   items: T[];
 }
@@ -21,6 +27,7 @@ export interface DlqItem {
   status: string;
   type?: string;
   messageId?: string;
+  correlationId?: string;
   attempts: number;
   maxAttempts: number;
   updatedAt?: string;
@@ -40,12 +47,42 @@ export interface GroovyValidationResult {
   errors: string[];
 }
 
+
+export interface RuntimeConfigPayload {
+  revision?: string;
+  [key: string]: unknown;
+}
+
+export interface RuntimeConfigAuditItem {
+  changedAt: string;
+  actor: string;
+  source: string;
+  fromRevision?: string;
+  toRevision?: string;
+  note?: string;
+  changedSections?: string;
+}
+
 export interface GroovyEmulationResult {
   success: boolean;
   output?: unknown;
   calls?: unknown[];
   debugMessages?: string[];
   errors?: string[];
+}
+
+export interface DlqReplayBatchItem {
+  outcome: string;
+  id: number;
+}
+
+export interface DlqReplayBatchResponse {
+  total: number;
+  ok: number;
+  locked: number;
+  failed: number;
+  dead: number;
+  items: DlqReplayBatchItem[];
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -88,9 +125,21 @@ export const workbenchApi = {
     }
   },
 
+  async fetchRuntimeConfig(): Promise<RuntimeConfigPayload> {
+    const response = await jsonFetch<{ config?: RuntimeConfigPayload }>('/admin/runtime-config');
+    return response.config ?? {};
+  },
+
+  async fetchRuntimeConfigAudit(limit = 20): Promise<RuntimeConfigAuditItem[]> {
+    const response = await jsonFetch<ListResponse<RuntimeConfigAuditItem>>(`/admin/runtime-config/audit?limit=${limit}`);
+    return response.items ?? [];
+  },
+
   async dryRunRuntimeConfig(payload: Record<string, unknown>): Promise<{ ok: boolean; warnings: string[] }> {
-    const warnings = Object.keys(payload).length === 0 ? ['Runtime config is empty'] : [];
-    return { ok: warnings.length === 0, warnings };
+    return jsonFetch('/admin/runtime-config/dry-run', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
 
   async saveRuntimeConfig(payload: Record<string, unknown>): Promise<{ saved: boolean; source: 'server' | 'local' }> {
@@ -106,13 +155,34 @@ export const workbenchApi = {
     }
   },
 
-  async listDlq(status = 'PENDING', limit = 50): Promise<DlqItem[]> {
-    const response = await jsonFetch<ListResponse<DlqItem>>(`/admin/dlq?status=${encodeURIComponent(status)}&limit=${limit}`);
+  async listDlq(
+    status = 'PENDING',
+    limit = 50,
+    filter?: { type?: string; source?: string; branchId?: string }
+  ): Promise<DlqItem[]> {
+    const params = new URLSearchParams({ status, limit: String(limit) });
+    if (filter?.type) params.set('type', filter.type);
+    if (filter?.source) params.set('source', filter.source);
+    if (filter?.branchId) params.set('branchId', filter.branchId);
+    const response = await jsonFetch<ListResponse<DlqItem>>(`/admin/dlq?${params.toString()}`);
     return response.items ?? [];
   },
 
   async replayDlq(id: number): Promise<unknown> {
     return jsonFetch(`/admin/dlq/${id}/replay`, { method: 'POST' });
+  },
+
+  async replayDlqBatch(filter: { type?: string; source?: string; branchId?: string; limit?: number }): Promise<DlqReplayBatchResponse> {
+    return jsonFetch('/admin/dlq/replay-batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        status: 'PENDING',
+        type: filter.type,
+        source: filter.source,
+        branchId: filter.branchId,
+        limit: filter.limit ?? 50
+      })
+    });
   },
 
   async listMessagingOutbox(status = 'PENDING', limit = 50): Promise<OutboxItem[]> {
@@ -122,6 +192,24 @@ export const workbenchApi = {
 
   async replayMessagingOutbox(id: number): Promise<unknown> {
     return jsonFetch(`/admin/outbox/messaging/${id}/replay`, { method: 'POST' });
+  },
+
+  async getOutboundDryRunState(): Promise<OutboundDryRunState> {
+    return jsonFetch('/admin/outbound/dry-run');
+  },
+
+  async setOutboundDryRunOverride(enabled: boolean): Promise<OutboundDryRunState> {
+    return jsonFetch('/admin/outbound/dry-run', {
+      method: 'POST',
+      body: JSON.stringify({ enabled, reset: false })
+    });
+  },
+
+  async resetOutboundDryRunOverride(): Promise<OutboundDryRunState> {
+    return jsonFetch('/admin/outbound/dry-run', {
+      method: 'POST',
+      body: JSON.stringify({ reset: true })
+    });
   },
 
   async listRestOutbox(status = 'PENDING', limit = 50): Promise<OutboxItem[]> {
@@ -148,20 +236,12 @@ export const workbenchApi = {
   },
 
   async fetchIntegrationsHealth(): Promise<IntegrationHealth[]> {
-    const startedAt = performance.now();
     try {
-      const payload = await jsonFetch<{ status?: string }>('/health');
-      const elapsed = Math.round(performance.now() - startedAt);
-      return [
-        {
-          system: 'Integration Broker',
-          status: payload.status === 'UP' ? 'UP' : 'DEGRADED',
-          latencyMs: elapsed,
-          details: `Health endpoint status: ${payload.status ?? 'UNKNOWN'}`
-        }
-      ];
+      const response = await jsonFetch<{ items?: IntegrationHealth[] }>('/admin/integrations/health');
+      const items = response.items ?? [];
+      return items.length > 0 ? items : [{ system: 'Integration Broker', status: 'DEGRADED', latencyMs: 0, details: 'NO_ITEMS' }];
     } catch {
-      return [{ system: 'Integration Broker', status: 'DOWN', latencyMs: 0, details: 'Health endpoint unavailable' }];
+      return [{ system: 'Integration Broker', status: 'DOWN', latencyMs: 0, details: 'UNAVAILABLE' }];
     }
   }
 };

@@ -36,17 +36,27 @@ public class OutboxDispatcher {
     private final MessagingOutboxService messagingOutboxService;
     private final RestOutboxService restOutboxService;
     private final MessagingProviderRegistry providerRegistry;
+    private final OutboundDryRunState outboundDryRunState;
     @Value("${integrationbroker.outbound.dry-run:false}")
     protected boolean outboundDryRun;
 
     public OutboxDispatcher(RuntimeConfigStore configStore,
                             MessagingOutboxService messagingOutboxService,
                             RestOutboxService restOutboxService,
-                            MessagingProviderRegistry providerRegistry) {
+                            MessagingProviderRegistry providerRegistry,
+                            OutboundDryRunState outboundDryRunState) {
         this.configStore = configStore;
         this.messagingOutboxService = messagingOutboxService;
         this.restOutboxService = restOutboxService;
         this.providerRegistry = providerRegistry;
+        this.outboundDryRunState = outboundDryRunState;
+    }
+
+    public OutboxDispatcher(RuntimeConfigStore configStore,
+                            MessagingOutboxService messagingOutboxService,
+                            RestOutboxService restOutboxService,
+                            MessagingProviderRegistry providerRegistry) {
+        this(configStore, messagingOutboxService, restOutboxService, providerRegistry, new OutboundDryRunState(false, null));
     }
 
     /**
@@ -54,7 +64,7 @@ public class OutboxDispatcher {
      */
     @Scheduled(fixedDelay = "${integrationbroker.dispatcher.fixed-delay:2s}")
     public void dispatchMessaging() {
-        if (outboundDryRun) {
+        if (outboundDryRunState.isDryRun(outboundDryRun)) {
             return;
         }
         RuntimeConfigStore.RuntimeConfig cfg = configStore.getEffective();
@@ -119,7 +129,7 @@ public class OutboxDispatcher {
      */
     @Scheduled(fixedDelay = "${integrationbroker.dispatcher.fixed-delay:2s}")
     public void dispatchRest() {
-        if (outboundDryRun) {
+        if (outboundDryRunState.isDryRun(outboundDryRun)) {
             return;
         }
         RuntimeConfigStore.RuntimeConfig cfg = configStore.getEffective();
@@ -141,22 +151,39 @@ public class OutboxDispatcher {
                     restOutboxService.markSent(r.id(), rr.httpStatus());
                     continue;
                 }
-                onRestFailure(r, oc, rr.errorCode(), rr.errorMessage(), rr.httpStatus());
+                onRestFailure(r, oc, cfg, rr.errorCode(), rr.errorMessage(), rr.httpStatus());
             } catch (Exception e) {
-                onRestFailure(r, oc, "DISPATCH_ERROR", e.getMessage(), -1);
+                onRestFailure(r, oc, cfg, "DISPATCH_ERROR", e.getMessage(), -1);
             }
         }
     }
 
     private void onRestFailure(RestOutboxService.RestRecord r,
                                RuntimeConfigStore.RestOutboxConfig oc,
+                               RuntimeConfigStore.RuntimeConfig cfg,
                                String errorCode,
                                String errorMessage,
                                int httpStatus) {
         int nextAttempts = r.attempts() + 1;
-        int maxAttempts = Math.max(1, oc.maxAttempts());
+        RuntimeConfigStore.RetryPolicy retryPolicy = resolveRetryPolicy(cfg, r.connectorId());
+
+        int defaultMaxAttempts = Math.max(1, oc.maxAttempts());
+        int maxAttempts = (retryPolicy == null || retryPolicy.maxAttempts() == null)
+                ? Math.max(1, r.maxAttempts())
+                : Math.max(1, retryPolicy.maxAttempts());
+        if (maxAttempts <= 0) {
+            maxAttempts = defaultMaxAttempts;
+        }
+
+        int baseDelay = (retryPolicy == null || retryPolicy.baseDelaySec() == null)
+                ? oc.baseDelaySec()
+                : retryPolicy.baseDelaySec();
+        int maxDelay = (retryPolicy == null || retryPolicy.maxDelaySec() == null)
+                ? oc.maxDelaySec()
+                : retryPolicy.maxDelaySec();
+
         boolean dead = nextAttempts >= maxAttempts;
-        Instant next = computeNextAttempt(oc.baseDelaySec(), oc.maxDelaySec(), nextAttempts);
+        Instant next = computeNextAttempt(baseDelay, maxDelay, nextAttempts);
 
         restOutboxService.markFailed(r.id(), nextAttempts, maxAttempts, next, errorCode, errorMessage, httpStatus, dead);
 
@@ -164,6 +191,17 @@ public class OutboxDispatcher {
             log.warn("[OUTBOX][REST] запись переведена в DEAD id={} method={} url={} attempts={}/{} httpStatus={} errorCode={}",
                     r.id(), r.httpMethod(), r.url(), nextAttempts, maxAttempts, httpStatus, SensitiveDataSanitizer.sanitizeText(errorCode));
         }
+    }
+
+    private RuntimeConfigStore.RetryPolicy resolveRetryPolicy(RuntimeConfigStore.RuntimeConfig cfg, String connectorId) {
+        if (cfg == null || cfg.restConnectors() == null || connectorId == null || connectorId.isBlank()) {
+            return null;
+        }
+        RuntimeConfigStore.RestConnectorConfig connector = cfg.restConnectors().get(connectorId);
+        if (connector == null) {
+            return null;
+        }
+        return connector.retryPolicy();
     }
 
     private static Instant computeNextAttempt(int baseDelaySec, int maxDelaySec, int attempts) {

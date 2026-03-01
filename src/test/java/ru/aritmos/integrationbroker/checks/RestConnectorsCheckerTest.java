@@ -106,7 +106,7 @@ class RestConnectorsCheckerTest {
                 new RuntimeConfigStore.KeycloakProxyEnrichmentConfig(false, false, "keycloakProxy", List.of(RuntimeConfigStore.KeycloakProxyFetchMode.USER_ID_HEADER), "x-user-id", "Authorization", "/authorization/users/{userName}", "/authentication/userInfo", true, 60, 5000, true, List.of()),
                 new RuntimeConfigStore.MessagingOutboxConfig(false, "ON_FAILURE", 10, 5, 600, 50),
                 new RuntimeConfigStore.RestOutboxConfig(false, "ON_FAILURE", 10, 5, 600, 50, "Idempotency-Key", "409"),
-                Map.of("conn-1", new RuntimeConfigStore.RestConnectorConfig(baseUrl, auth)),
+                Map.of("conn-1", new RuntimeConfigStore.RestConnectorConfig(baseUrl, auth, null, null)),
                 RuntimeConfigStore.CrmConfig.disabled(),
                 RuntimeConfigStore.MedicalConfig.disabled(),
                 RuntimeConfigStore.AppointmentConfig.disabled(),

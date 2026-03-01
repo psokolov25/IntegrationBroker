@@ -31,6 +31,7 @@ import ru.aritmos.integrationbroker.model.InboundEnvelope;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -409,9 +410,12 @@ class AdminInboundDlqController {
     @ApiResponse(responseCode = "200", description = "Список", content = @Content(schema = @Schema(implementation = DlqListResponse.class)))
     public DlqListResponse list(
             @Parameter(description = "Фильтр статуса (PENDING/REPLAYED/DEAD)") String status,
+            @Parameter(description = "Фильтр по типу сообщения") String type,
+            @Parameter(description = "Фильтр по источнику (source/sourceSystem/system)") String source,
+            @Parameter(description = "Фильтр по branchId") String branchId,
             @Parameter(description = "Лимит (1..200)") Integer limit) {
         int lim = (limit == null) ? 50 : limit;
-        return new DlqListResponse(inboundDlqService.list(status, lim));
+        return new DlqListResponse(inboundDlqService.list(status, type, source, branchId, lim));
     }
 
     @Post(uri = "/{id}/replay")
@@ -427,14 +431,69 @@ class AdminInboundDlqController {
     @ApiResponse(responseCode = "409", description = "Запись в статусе DEAD (лимит попыток исчерпан)")
     @ApiResponse(responseCode = "500", description = "Replay завершился ошибкой (attempts увеличен)", content = @Content(schema = @Schema(implementation = DlqReplayResponse.class)))
     public HttpResponse<DlqReplayResponse> replay(@Parameter(description = "ID записи DLQ") @PathVariable("id") long id) {
+        DlqReplayResponse response = replayOne(id);
+        if ("NOT_FOUND".equals(response.outcome())) {
+            return HttpResponse.notFound();
+        }
+        if ("DEAD".equals(response.outcome())) {
+            return HttpResponse.status(HttpStatus.CONFLICT).body(response);
+        }
+        if ("LOCKED".equals(response.outcome())) {
+            return HttpResponse.status(HttpStatus.ACCEPTED).body(response);
+        }
+        if ("FAILED".equals(response.outcome())) {
+            return HttpResponse.serverError(response);
+        }
+        return HttpResponse.ok(response);
+    }
+
+    @Post(uri = "/replay-batch")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Batch replay сообщений из DLQ",
+            description = "Выполняет переигрывание нескольких DLQ-записей с фильтрацией по status/type/source/branch. " +
+                    "По умолчанию обрабатываются PENDING-записи."
+    )
+    @ApiResponse(responseCode = "200", description = "Batch replay выполнен", content = @Content(schema = @Schema(implementation = DlqReplayBatchResponse.class)))
+    public DlqReplayBatchResponse replayBatch(@Body DlqReplayBatchRequest request) {
+        int lim = (request == null || request.limit() == null) ? 50 : request.limit();
+        String status = (request == null || request.status() == null || request.status().isBlank()) ? InboundDlqService.Status.PENDING.name() : request.status();
+        String type = request == null ? null : request.type();
+        String source = request == null ? null : request.source();
+        String branchId = request == null ? null : request.branchId();
+
+        List<InboundDlqService.DlqRecord> records = inboundDlqService.list(status, type, source, branchId, lim);
+        List<DlqReplayResponse> items = new ArrayList<>();
+        int ok = 0;
+        int locked = 0;
+        int failed = 0;
+        int dead = 0;
+
+        for (InboundDlqService.DlqRecord rec : records) {
+            DlqReplayResponse res = replayOne(rec.id());
+            items.add(res);
+            if ("PROCESSED".equals(res.outcome()) || "SKIP_COMPLETED".equals(res.outcome()) || "REPLAYED".equals(res.outcome())) {
+                ok++;
+            } else if ("LOCKED".equals(res.outcome())) {
+                locked++;
+            } else if ("DEAD".equals(res.outcome())) {
+                dead++;
+            } else if ("FAILED".equals(res.outcome())) {
+                failed++;
+            }
+        }
+
+        return new DlqReplayBatchResponse(records.size(), ok, locked, failed, dead, items);
+    }
+
+    private DlqReplayResponse replayOne(long id) {
         InboundDlqService.DlqFull full = inboundDlqService.getFull(id);
         if (full == null) {
-            return HttpResponse.notFound();
+            return new DlqReplayResponse("NOT_FOUND", id, 0, 0, null, "DLQ_NOT_FOUND", "Запись не найдена");
         }
 
         if (InboundDlqService.Status.DEAD.name().equals(full.record().status())) {
-            return HttpResponse.status(HttpStatus.CONFLICT)
-                    .body(new DlqReplayResponse("DEAD", id, full.record().attempts(), full.record().maxAttempts(), null, "DLQ_DEAD", "Лимит попыток исчерпан"));
+            return new DlqReplayResponse("DEAD", id, full.record().attempts(), full.record().maxAttempts(), null, "DLQ_DEAD", "Лимит попыток исчерпан");
         }
 
         InboundEnvelope env = new InboundEnvelope(
@@ -452,17 +511,16 @@ class AdminInboundDlqController {
         try {
             InboundProcessingService.ProcessingResult res = processingService.process(env);
             if ("LOCKED".equals(res.outcome())) {
-                return HttpResponse.status(HttpStatus.ACCEPTED)
-                        .body(new DlqReplayResponse("LOCKED", id, full.record().attempts(), full.record().maxAttempts(), res.output(), null, null));
+                return new DlqReplayResponse("LOCKED", id, full.record().attempts(), full.record().maxAttempts(), res.output(), null, null);
             }
 
             String replayJson = objectMapper.writeValueAsString(res);
             inboundDlqService.markReplayed(id, replayJson);
-            return HttpResponse.ok(new DlqReplayResponse(res.outcome(), id, full.record().attempts(), full.record().maxAttempts(), res.output(), null, null));
+            return new DlqReplayResponse(res.outcome(), id, full.record().attempts(), full.record().maxAttempts(), res.output(), null, null);
         } catch (Exception ex) {
             String safeMsg = SensitiveDataSanitizer.sanitizeText(ex.getMessage());
             inboundDlqService.markReplayFailed(id, "REPLAY_FAILED", safeMsg);
-            return HttpResponse.serverError(new DlqReplayResponse("FAILED", id, full.record().attempts() + 1, full.record().maxAttempts(), null, "REPLAY_FAILED", safeMsg));
+            return new DlqReplayResponse("FAILED", id, full.record().attempts() + 1, full.record().maxAttempts(), null, "REPLAY_FAILED", safeMsg);
         }
     }
 
@@ -503,6 +561,29 @@ class AdminInboundDlqController {
             @Schema(description = "Результат выполнения (если есть)") Map<String, Object> output,
             @Schema(description = "Код ошибки (если есть)") String errorCode,
             @Schema(description = "Сообщение ошибки (если есть)") String errorMessage
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "DlqReplayBatchRequest", description = "Параметры пакетного replay inbound DLQ")
+    record DlqReplayBatchRequest(
+            @Schema(description = "Фильтр статуса (по умолчанию PENDING)") String status,
+            @Schema(description = "Фильтр по type") String type,
+            @Schema(description = "Фильтр по source/sourceSystem/system") String source,
+            @Schema(description = "Фильтр по branchId") String branchId,
+            @Schema(description = "Лимит записей (1..200)") Integer limit
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "DlqReplayBatchResponse", description = "Результат пакетного replay inbound DLQ")
+    record DlqReplayBatchResponse(
+            @Schema(description = "Количество выбранных записей") int selected,
+            @Schema(description = "Успешно replayed (PROCESSED/SKIP_COMPLETED)") int success,
+            @Schema(description = "Количество LOCKED") int locked,
+            @Schema(description = "Количество FAILED") int failed,
+            @Schema(description = "Количество DEAD") int dead,
+            @Schema(description = "Результаты по каждой записи") List<DlqReplayResponse> items
     ) {
     }
 }
