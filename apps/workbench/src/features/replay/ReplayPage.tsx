@@ -55,6 +55,7 @@ export function ReplayPage() {
   const [notice, setNotice] = useState<string>('');
   const [lastReplayPayload, setLastReplayPayload] = useState<string>('');
   const [batchFilter, setBatchFilter] = useState('');
+  const [batchLimit, setBatchLimit] = useState('50');
   const [dlqTypeFilter, setDlqTypeFilter] = useState('');
   const [dlqSourceFilter, setDlqSourceFilter] = useState('');
   const [dlqBranchFilter, setDlqBranchFilter] = useState('');
@@ -118,17 +119,19 @@ export function ReplayPage() {
     if (!confirmed) {
       return;
     }
+    const parsedLimit = Number.parseInt(batchLimit, 10);
     const response = await workbenchApi.replayDlqBatch({
       type: type || undefined,
       source: source || undefined,
       branchId: branchId || undefined,
-      limit: 50
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : 50
     });
     window.localStorage.setItem(
       'ib.workbench.replay.last-batch',
       JSON.stringify({ ok: response.ok, locked: response.locked, failed: response.failed, dead: response.dead, at: new Date().toISOString() })
     );
-    setNotice(`${t('replayBatchResult')}: OK=${response.ok}, LOCKED=${response.locked}, FAILED=${response.failed}, DEAD=${response.dead}`);
+    const limitHint = response.limitClamped ? ` (${t('replayBatchLimitClamped')}: ${response.requestedLimit}→${response.appliedLimit})` : '';
+    setNotice(`${t('replayBatchResult')}: OK=${response.ok}, LOCKED=${response.locked}, FAILED=${response.failed}, DEAD=${response.dead}${limitHint}`);
     setLastReplayPayload(prettyJson(response));
     await load();
   };
@@ -231,6 +234,9 @@ export function ReplayPage() {
         <div className="card">
           <label>{t('filter')}</label>
           <input value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)} placeholder={t('replayBatchPlaceholder')} />
+          <label>{t('replayBatchLimitLabel')}</label>
+          <input value={batchLimit} onChange={(e) => setBatchLimit(e.target.value)} placeholder="50" />
+          <p>{t('replayBatchLimitHint')}</p>
           <button onClick={() => replayBatch().catch(() => setNotice(t('replayApiUnavailable')))}>{t('replayByFilter')}</button>
         </div>
       )}

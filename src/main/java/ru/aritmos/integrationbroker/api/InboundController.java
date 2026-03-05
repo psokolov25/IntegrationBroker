@@ -1,5 +1,6 @@
 package ru.aritmos.integrationbroker.api;
 
+import io.micronaut.context.annotation.Value;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MediaType;
@@ -18,6 +19,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ru.aritmos.integrationbroker.adapters.VisitManagerConflictMetrics;
 import ru.aritmos.integrationbroker.core.InboundDlqService;
 import ru.aritmos.integrationbroker.core.IdempotencyService;
@@ -371,17 +374,22 @@ class AdminIdempotencyController {
 @Tag(name = "Integration Broker — Admin API (Inbound DLQ)", description = "Просмотр сообщений в inbound DLQ и выполнение replay")
 class AdminInboundDlqController {
 
+    private static final Logger log = LoggerFactory.getLogger(AdminInboundDlqController.class);
+
     private final InboundDlqService inboundDlqService;
     private final InboundProcessingService processingService;
     private final ObjectMapper objectMapper;
+    private final int replayBatchLimitMax;
 
     @Inject
     AdminInboundDlqController(InboundDlqService inboundDlqService,
                               InboundProcessingService processingService,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              @Value("${integrationbroker.admin.dlq.replay-batch.max-limit:100}") int replayBatchLimitMax) {
         this.inboundDlqService = inboundDlqService;
         this.processingService = processingService;
         this.objectMapper = objectMapper;
+        this.replayBatchLimitMax = Math.max(1, replayBatchLimitMax);
     }
 
     @Get(uri = "/{id}")
@@ -456,7 +464,9 @@ class AdminInboundDlqController {
     )
     @ApiResponse(responseCode = "200", description = "Batch replay выполнен", content = @Content(schema = @Schema(implementation = DlqReplayBatchResponse.class)))
     public DlqReplayBatchResponse replayBatch(@Body DlqReplayBatchRequest request) {
-        int lim = (request == null || request.limit() == null) ? 50 : request.limit();
+        int requestedLimit = (request == null || request.limit() == null) ? 50 : request.limit();
+        int lim = Math.min(Math.max(1, requestedLimit), replayBatchLimitMax);
+        boolean limitClamped = requestedLimit != lim;
         String status = (request == null || request.status() == null || request.status().isBlank()) ? InboundDlqService.Status.PENDING.name() : request.status();
         String type = request == null ? null : request.type();
         String source = request == null ? null : request.source();
@@ -483,7 +493,20 @@ class AdminInboundDlqController {
             }
         }
 
-        return new DlqReplayBatchResponse(records.size(), ok, locked, failed, dead, items);
+        log.info("DLQ_REPLAY_BATCH actor=admin requestedLimit={} appliedLimit={} selected={} ok={} locked={} failed={} dead={} status={} type={} source={} branchId={}",
+                requestedLimit,
+                lim,
+                records.size(),
+                ok,
+                locked,
+                failed,
+                dead,
+                status,
+                type,
+                source,
+                branchId);
+
+        return new DlqReplayBatchResponse(records.size(), ok, locked, failed, dead, items, requestedLimit, lim, limitClamped);
     }
 
     private DlqReplayResponse replayOne(long id) {
@@ -583,7 +606,10 @@ class AdminInboundDlqController {
             @Schema(description = "Количество LOCKED") int locked,
             @Schema(description = "Количество FAILED") int failed,
             @Schema(description = "Количество DEAD") int dead,
-            @Schema(description = "Результаты по каждой записи") List<DlqReplayResponse> items
+            @Schema(description = "Результаты по каждой записи") List<DlqReplayResponse> items,
+            @Schema(description = "Лимит, запрошенный клиентом") int requestedLimit,
+            @Schema(description = "Лимит, применённый сервером") int appliedLimit,
+            @Schema(description = "Был ли лимит ограничен сервером") boolean limitClamped
     ) {
     }
 }

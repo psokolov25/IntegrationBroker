@@ -68,6 +68,12 @@ integrationbroker:
     # Интервал запуска диспетчера (можно переопределять в окружении).
     fixed-delay: 2s
 
+  admin:
+    dlq:
+      replay-batch:
+        # Server-side ограничение максимального размера batch replay.
+        max-limit: 100
+
   outbound:
     # Глобальный dry-run для исходящих интеграционных вызовов.
     # true: не выполняем прямые отправки/вызовы и не делаем ретраи в dispatcher.
