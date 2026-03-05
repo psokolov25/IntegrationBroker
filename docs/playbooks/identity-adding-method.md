@@ -24,6 +24,7 @@
   - `visionlabsFace` (типы: `faceId`, `faceImageBase64`)
   - `visionlabsCars` (типы: `vehiclePlate`, `vehicleImageBase64`)
   - регламент настройки: `docs/playbooks/visionlabs-identity.md`
+- Для мультивендорного биометрического контура РФ (VisionLabs, NtechLab, 3DiVi, Tevian, OCR-стек) используйте единый подход нормализации и оркестрации из раздела `Детализация: биометрическая идентификация в РФ` в `docs/playbooks/visionlabs-identity.md`.
 
 ## Общий алгоритм (коротко)
 

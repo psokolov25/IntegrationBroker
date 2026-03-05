@@ -175,7 +175,7 @@ public class DataBusApiImpl implements DataBusApi {
         envelope.put("idempotencyKey", resolvedIdempotencyKey);
         envelope.put("payload", payload);
         Map<String, Object> ibMeta = buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey);
-        ibMeta.put("requiredHeaders", buildMandatoryHeaders());
+        ibMeta.put("requiredHeaders", buildMandatoryHeaders(destination, sendToOtherBus, resolvedCorrelationId, resolvedRequestId));
         envelope.put("_ib", ibMeta);
         envelope.put("params", buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey));
         envelope.put("request", null);
@@ -215,16 +215,31 @@ public class DataBusApiImpl implements DataBusApi {
         return meta;
     }
 
-    private Map<String, Object> buildMandatoryHeaders() {
+    private Map<String, Object> buildMandatoryHeaders(String destination,
+                                                      Boolean sendToOtherBus,
+                                                      String correlationId,
+                                                      String requestId) {
         RuntimeConfigStore.RuntimeConfig cfg = configStore == null ? null : configStore.getEffective();
         RuntimeConfigStore.DataBusIntegrationConfig db = cfg == null ? null : cfg.dataBus();
+        String destinationHeaderName = db == null || normalize(db.destinationHeaderName()) == null ? "Service-Destination" : normalize(db.destinationHeaderName());
+        String sendToOtherBusHeaderName = db == null || normalize(db.sendToOtherBusHeaderName()) == null ? "Send-To-OtherBus" : normalize(db.sendToOtherBusHeaderName());
         String senderHeaderName = db == null || normalize(db.senderHeaderName()) == null ? "Service-Sender" : normalize(db.senderHeaderName());
         String sendDateHeaderName = db == null || normalize(db.sendDateHeaderName()) == null ? "Send-Date" : normalize(db.sendDateHeaderName());
         String senderService = resolveSenderServiceName();
         String sendDate = RFC1123.format(ZonedDateTime.now(ZoneId.of("GMT")));
         Map<String, Object> out = new LinkedHashMap<>();
+        out.put(destinationHeaderName, normalizeOrDefault(destination, "*"));
+        if (sendToOtherBus != null) {
+            out.put(sendToOtherBusHeaderName, String.valueOf(sendToOtherBus));
+        }
         out.put(senderHeaderName, senderService);
         out.put(sendDateHeaderName, sendDate);
+        if (correlationId != null) {
+            out.put("X-Correlation-Id", correlationId);
+        }
+        if (requestId != null) {
+            out.put("X-Request-Id", requestId);
+        }
         return out;
     }
 
