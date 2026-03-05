@@ -7,6 +7,7 @@ import { isSupportedLocale, LOCALE_LABELS, POPULAR_LOCALE_ORDER } from '../app/i
 const navItems: NavItem[] = [
   { path: '/monitoring', label: 'navMonitoring', roles: ['admin', 'operator', 'auditor', 'support'] },
   { path: '/runtime-config', label: 'navRuntime', roles: ['admin', 'operator'] },
+  { path: '/runtime-config/revisions', label: 'navRuntimeRevisions', roles: ['admin', 'operator', 'auditor'] },
   { path: '/replay', label: 'navReplay', roles: ['admin', 'operator', 'support'] },
   { path: '/groovy-tooling', label: 'navGroovy', roles: ['admin', 'operator'] },
   { path: '/integrations', label: 'navIntegrations', roles: ['admin', 'auditor', 'support'] },

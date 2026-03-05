@@ -63,6 +63,16 @@ export interface RuntimeConfigAuditItem {
   changedSections?: string;
 }
 
+export interface RuntimeConfigRevisionItem {
+  changedAt: string;
+  actor: string;
+  source: string;
+  fromRevision?: string;
+  toRevision?: string;
+  note?: string;
+  changedSections?: string;
+}
+
 export interface GroovyEmulationResult {
   success: boolean;
   output?: unknown;
@@ -83,6 +93,9 @@ export interface DlqReplayBatchResponse {
   failed: number;
   dead: number;
   items: DlqReplayBatchItem[];
+  requestedLimit: number;
+  appliedLimit: number;
+  limitClamped: boolean;
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -134,6 +147,11 @@ export const workbenchApi = {
     const response = await jsonFetch<ListResponse<RuntimeConfigAuditItem>>(`/admin/runtime-config/audit?limit=${limit}`);
     return response.items ?? [];
   },
+  async fetchRuntimeConfigRevisions(limit = 100): Promise<RuntimeConfigRevisionItem[]> {
+    const response = await jsonFetch<ListResponse<RuntimeConfigRevisionItem>>(`/admin/runtime-config/audit?limit=${limit}`);
+    return (response.items ?? []).filter((item) => Boolean(item.toRevision || item.fromRevision));
+  },
+
 
   async dryRunRuntimeConfig(payload: Record<string, unknown>): Promise<{ ok: boolean; warnings: string[] }> {
     return jsonFetch('/admin/runtime-config/dry-run', {
@@ -173,7 +191,7 @@ export const workbenchApi = {
   },
 
   async replayDlqBatch(filter: { type?: string; source?: string; branchId?: string; limit?: number }): Promise<DlqReplayBatchResponse> {
-    return jsonFetch('/admin/dlq/replay-batch', {
+    const response = await jsonFetch<{ selected: number; success: number; locked: number; failed: number; dead: number; items: DlqReplayBatchItem[]; requestedLimit?: number; appliedLimit?: number; limitClamped?: boolean }>('/admin/dlq/replay-batch', {
       method: 'POST',
       body: JSON.stringify({
         status: 'PENDING',
@@ -183,6 +201,17 @@ export const workbenchApi = {
         limit: filter.limit ?? 50
       })
     });
+    return {
+      total: response.selected,
+      ok: response.success,
+      locked: response.locked,
+      failed: response.failed,
+      dead: response.dead,
+      items: response.items ?? [],
+      requestedLimit: response.requestedLimit ?? (filter.limit ?? 50),
+      appliedLimit: response.appliedLimit ?? (filter.limit ?? 50),
+      limitClamped: response.limitClamped ?? false
+    };
   },
 
   async listMessagingOutbox(status = 'PENDING', limit = 50): Promise<OutboxItem[]> {

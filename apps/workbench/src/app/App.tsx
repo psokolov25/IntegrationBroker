@@ -6,6 +6,7 @@ import { LoginPage } from '../features/auth/LoginPage';
 import { Layout } from '../components/Layout';
 import { MonitoringPage } from '../features/monitoring/MonitoringPage';
 import { RuntimeConfigPage } from '../features/runtimeConfig/RuntimeConfigPage';
+import { RuntimeConfigRevisionsPage } from '../features/runtimeConfig/RuntimeConfigRevisionsPage';
 import { ReplayPage } from '../features/replay/ReplayPage';
 import { GroovyToolingPage } from '../features/groovy/GroovyToolingPage';
 import { IntegrationsPage } from '../features/integrations/IntegrationsPage';
@@ -94,6 +95,7 @@ export function App() {
             <Route path="/" element={<Navigate to="/monitoring" replace />} />
             <Route path="/monitoring" element={<MonitoringPage />} />
             <Route path="/runtime-config" element={<RuntimeConfigPage />} />
+            <Route path="/runtime-config/revisions" element={<RuntimeConfigRevisionsPage />} />
             <Route path="/replay" element={<ReplayPage />} />
             <Route path="/groovy-tooling" element={<GroovyToolingPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />

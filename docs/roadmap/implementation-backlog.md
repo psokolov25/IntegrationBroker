@@ -72,9 +72,9 @@
 44. `DONE` Добавить dry-run предпросмотр diff конфигурации до сохранения.
 45. `DONE` Добавить UI-валидацию формата фильтра batch replay.
 46. `DONE` Добавить метрики replay (ok/failed/locked/dead) на dashboard.
-47. `TODO` Добавить E2E smoke для маршрутов Workbench.
-48. `TODO` Добавить unit-тесты для workbenchApi replay-batch.
-49. `TODO` Добавить unit-тесты для локализации runtime/replay screen.
+47. `DONE` Добавить E2E smoke для маршрутов Workbench.
+48. `DONE` Добавить unit-тесты для workbenchApi replay-batch.
+49. `DONE` Добавить unit-тесты для локализации runtime/replay screen.
 50. `DONE` Добавить fallback-тексты для неизвестных исходов replay.
 51. `DONE` Добавить серверный endpoint health-check интеграций с деталями VM/DataBus.
 52. `DONE` Добавить ручной trigger health-check из UI с timestamp последней проверки.
@@ -82,7 +82,7 @@
 54. `DONE` Добавить поддержку копирования correlationId из replay таблиц.
 55. `DONE` Добавить UI для просмотра replay result payload.
 56. `DONE` Добавить API client wrapper для `OutboundAdminController`.
-57. `TODO` Добавить read-only экран runtime-config revisions.
-58. `TODO` Добавить server-side limit guard и UI hint для больших batch replay.
-59. `TODO` Добавить audit события для replay batch запросов.
-60. `TODO` Подготовить release notes по пакету 02 и обновить README ссылками.
+57. `DONE` Добавить read-only экран runtime-config revisions.
+58. `DONE` Добавить server-side limit guard и UI hint для больших batch replay.
+59. `DONE` Добавить audit события для replay batch запросов.
+60. `DONE` Подготовить release notes по пакету 02 и обновить README ссылками.
