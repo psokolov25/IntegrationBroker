@@ -169,6 +169,10 @@ DataBus требует заголовки (формируются автомат
 - `Send-To-OtherBus`
 - `Send-Date` (RFC1123)
 - `Service-Sender`
+- `X-Correlation-Id`
+- `X-Request-Id`
+
+Для Java-обёртки `DataBusApiImpl` эти значения также публикуются в `envelope._ib.requiredHeaders`, чтобы Groovy/оркестрация могли явно видеть обязательный набор отправляемых header'ов.
 
 ## 4. Как сопоставлять медицинские процедуры с услугами VisitManager
 

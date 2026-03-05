@@ -164,8 +164,12 @@ class DataBusApiImplTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> requiredHeaders = (Map<String, Object>) ibMeta.get("requiredHeaders");
         assertNotNull(requiredHeaders);
+        assertEquals("crm", requiredHeaders.get("Service-Destination"));
+        assertEquals("false", requiredHeaders.get("Send-To-OtherBus"));
         assertEquals("integration-broker", requiredHeaders.get("Service-Sender"));
         assertNotNull(requiredHeaders.get("Send-Date"));
+        assertEquals("corr-1", requiredHeaders.get("X-Correlation-Id"));
+        assertEquals("src-1", requiredHeaders.get("X-Request-Id"));
 
         @SuppressWarnings("unchecked")
         Map<String, Object> paramsMeta = (Map<String, Object>) envelope.get("params");
@@ -243,6 +247,10 @@ class DataBusApiImplTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> ibMeta = (Map<String, Object>) envelope.get("_ib");
         assertTrue(ibMeta.containsKey("requiredHeaders"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> requiredHeaders = (Map<String, Object>) ibMeta.get("requiredHeaders");
+        assertEquals("crm", requiredHeaders.get("Service-Destination"));
+        assertEquals("false", requiredHeaders.get("Send-To-OtherBus"));
     }
 
     @Test
