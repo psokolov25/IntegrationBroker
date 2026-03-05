@@ -49,6 +49,13 @@
    - метрики DLQ/outbox/idempotency,
    - аудит операций и ошибок.
 
+7. **Custom REST API Designer**
+   - визуальный конструктор контрактов API (method/path/params),
+   - визуальное моделирование входных/выходных данных и HTTP-статусов,
+   - встроенный Groovy-редактор логики endpoint (validate/emulate),
+   - публикация endpoint в runtime без ручного Java-кода,
+   - автогенерация OpenAPI и доступность через Swagger UI.
+
 ### 2.2. Tech stack (рекомендация)
 
 - React 18+
@@ -77,6 +84,7 @@ ui/
     pages/
       flow-catalog/
       groovy-workbench/
+      custom-rest-api/
       operations/
       settings/
       monitoring/
@@ -88,6 +96,9 @@ ui/
     features/
       flow-validate/
       flow-emulate/
+      rest-api-design/
+      rest-api-publish/
+      rest-api-swagger-sync/
       config-publish/
       dlq-replay/
       connector-health-check/
@@ -170,6 +181,8 @@ features/flow-emulate/
 - Следующие языки добавляются по мировой популярности (например: `zh-CN`, `hi-IN`, `es-ES`, `ar-SA`, `fr-FR`, `pt-BR`, `bn-BD`, ...).
 - Переключение языка должно быть доступно из UI (минимум: глобальный switcher).
 
+
+
 ### 2.8. Пошаговый roadmap внедрения структуры
 
 1. Создать каркас `app/shared/entities/features/widgets/pages`.
@@ -178,6 +191,48 @@ features/flow-emulate/
 4. Унифицировать таблицы/формы через `shared/ui`.
 5. Добавить storybook (опционально) для UI-kit и сложных виджетов.
 6. Зафиксировать архитектурные правила линтером импортов (например, eslint boundaries).
+
+### 2.10. Custom REST API через GUI (обязательно)
+
+Цель: дать integrator-команде возможность без доработки Java-кода создавать клиентские REST endpoint внутри IB (например, для собственного dashboard/пульта управления визитами).
+
+В модуле `custom-rest-api` должны поддерживаться:
+
+1. **Endpoint Designer**
+   - `service/group`, `method`, `path`, `consumes/produces`;
+   - параметры `path/query/header/cookie`;
+   - auth-профиль (none/api-key/bearer/proxy-forward);
+   - runtime ограничения (rate-limit, timeout, max payload).
+
+2. **Contract Designer**
+   - request schema (JSON schema + required/enum/format + examples);
+   - response schema на каждый статус (200/201/400/404/409/500 и др.);
+   - заголовки ответов и единый error-envelope (`code/message/details/correlationId`).
+
+3. **Groovy Logic Editor**
+   - Monaco-редактор + кнопки `Validate`/`Emulate`;
+   - контекст: `ctx.request.body/path/query/headers`, `ctx.correlationId`, `ctx.requestId`, `ctx.idempotencyKey`;
+   - доступ к alias (`visit`, `bus`, `crm`, `medical`, `appointment`, `rest`, `msg`).
+
+4. **Swagger/OpenAPI Publication**
+   - все опубликованные GUI endpoint автоматически входят в агрегированный OpenAPI;
+   - Swagger UI доступен по `/swagger-ui` или `/swagger-ui/index.html`;
+   - в UI должны отображаться request/response схемы, статусы и примеры.
+
+5. **Versioning & Lifecycle**
+   - состояния: `DRAFT` -> `PUBLISHED`;
+   - поддержка версий (`v1`, `v2`) без удаления предыдущего контракта;
+   - pre-publish проверки: route conflicts, Groovy compile, schema validity, observability fields.
+
+Пример клиентского кейса (dashboard):
+
+- `POST /api/custom/visits/create` — создать визит;
+- `POST /api/custom/visits/{visitId}/call` — вызвать визит;
+- `POST /api/custom/visits/{visitId}/finish` — завершить визит;
+- `GET /api/custom/branches/{branchId}/queue` — получить состояние очереди.
+
+Оркестрация остается в границах IB: вызовы VisitManager/DataBus делаются из Groovy, а бизнес-правила клиента живут в скриптах и YAML flow.
+
 
 ## 3. Backend API для IDE/эмуляции
 
@@ -208,6 +263,25 @@ features/flow-emulate/
   "visit.createVisitRest": {"success": true, "body": {"id": "V-100"}}
 }
 ```
+
+## 3.1. Backend API для Custom REST API Designer
+
+Рекомендуемые административные endpoint для UI:
+
+- `POST /admin/rest-designer/apis` — создать черновик endpoint;
+- `PUT /admin/rest-designer/apis/{apiId}` — обновить контракт/скрипт;
+- `POST /admin/rest-designer/apis/{apiId}/validate` — валидация схемы/маршрута/Groovy;
+- `POST /admin/rest-designer/apis/{apiId}/publish` — публикация в runtime;
+- `POST /admin/rest-designer/apis/{apiId}/unpublish` — снятие с публикации;
+- `GET /admin/rest-designer/apis` — список API + статус публикации;
+- `GET /admin/rest-designer/openapi` — агрегированный OpenAPI для Swagger UI.
+
+Требования к runtime:
+
+- генерация route-table из опубликованных API;
+- обязательная прокладка `X-Correlation-Id` и `X-Request-Id`;
+- idempotency для небезопасных операций;
+- аудит изменений и rollback до предыдущей версии.
 
 ## 4. IDE-возможности для Groovy
 
