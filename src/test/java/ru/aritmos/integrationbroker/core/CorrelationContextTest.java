@@ -42,4 +42,24 @@ class CorrelationContextTest {
         assertEquals("corr-h", ctx.correlationId());
         assertEquals("req-h", ctx.requestId());
     }
+
+    @Test
+    void fromInbound_shouldPreferXRequestIdHeaderOverMessageId() {
+        InboundEnvelope envelope = new InboundEnvelope(
+                InboundEnvelope.Kind.EVENT,
+                "demo.event",
+                null,
+                Map.of("X-Correlation-Id", "corr-h", "X-Request-Id", "req-header"),
+                "msg-1",
+                null,
+                null,
+                null,
+                Map.of()
+        );
+
+        CorrelationContext ctx = CorrelationContext.fromInbound(envelope);
+        assertEquals("corr-h", ctx.correlationId());
+        assertEquals("req-header", ctx.requestId());
+    }
+
 }

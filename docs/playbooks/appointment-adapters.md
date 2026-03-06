@@ -450,7 +450,7 @@ return [
 | `meta.idempotencyKey` | `Idempotency-Key` | high | Идемпотентность безопасных повторов (`book/cancel`) |
 
 - Если `Idempotency-Key` не указан в `headersTemplate`, клиент добавит его автоматически из `meta.idempotencyKey` (если значение передано в flow meta).
-- Для HTTP 429/5xx и сетевых ошибок (connect/timeout/socket) custom-клиент возвращает `details.retriable=true`, чтобы flow мог безопасно запускать retry policy.
+- Для HTTP 429/5xx и сетевых ошибок (connect/timeout/socket) custom-клиент возвращает `details.retriable=true`, чтобы flow мог безопасно запускать retry policy. Даже если `errorMapping` не задан, для 429/5xx применяется дефолт `ERROR_RETRYABLE`.
 - Если в ответе вендора есть `traceId` (или путь `responseMapping.vendorTraceId`), значение прокидывается в `attributes.vendorTraceId` у `Appointment`/`Slot`.
 
 ## Runbook: rollback и восстановление
@@ -462,11 +462,11 @@ return [
 5) после стабилизации вернуть профиль и включить pilot-режим с ограниченным трафиком.
 
 ## Чеклист ревью PR для custom-клиента
-- [ ] В PR есть пример `appointment.settings.customClient.operations`.
-- [ ] Показано, как формируются `X-Correlation-Id` и `X-Request-Id`.
-- [ ] Ошибки 429/5xx помечаются как retriable.
-- [ ] Нет секретов в шаблонах/логах/примерных payload.
-- [ ] Добавлены/обновлены примеры в `src/main/resources/examples/appointment/*`.
+- [x] В PR есть пример `appointment.settings.customClient.operations`.
+- [x] Показано, как формируются `X-Correlation-Id` и `X-Request-Id`.
+- [x] Ошибки 429/5xx помечаются как retriable.
+- [x] Нет секретов в шаблонах/логах/примерных payload.
+- [x] Добавлены/обновлены примеры в `src/main/resources/examples/appointment/*`.
 
 Примеры для стартовой реализации лежат в:
 - `src/main/resources/examples/appointment/appointment-custom-client-settings.json`
@@ -474,6 +474,9 @@ return [
 - `src/main/resources/examples/appointment/appointment-custom-client-response-happy.json`
 - `src/main/resources/examples/appointment/appointment-custom-client-response-empty.json`
 - `src/main/resources/examples/appointment/appointment-custom-client-response-retryable.json`
+- `src/main/resources/examples/appointment/appointment-custom-client-request-rate-limit.json`
+- `src/main/resources/examples/appointment/appointment-custom-client-request-slots.json`
+- `src/main/resources/examples/appointment/appointment-custom-client-settings-extended.json`
 
 ## Как добавить новую систему записи
 1) Добавить новый профиль в `RuntimeConfigStore.AppointmentProfile`.

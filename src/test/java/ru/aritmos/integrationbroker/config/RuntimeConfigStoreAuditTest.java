@@ -52,4 +52,112 @@ class RuntimeConfigStoreAuditTest {
         assertEquals("rev-audit-1", last.toRevision());
         assertTrue(last.changedSections() != null && !last.changedSections().isBlank());
     }
+
+    @Test
+    void shouldRejectManualUpdateWhenAppointmentCustomOperationMissesMethodOrPath() {
+        RuntimeConfigStore store = new RuntimeConfigStore(
+                null,
+                new ObjectMapper(),
+                null,
+                "classpath:examples/sample-system-config.json",
+                false,
+                "/configuration/config/system/integrationbroker"
+        );
+
+        RuntimeConfigStore.RuntimeConfig base = store.getEffective();
+        RuntimeConfigStore.AppointmentConfig appointment = new RuntimeConfigStore.AppointmentConfig(
+                true,
+                RuntimeConfigStore.AppointmentProfile.CUSTOM_CONNECTOR,
+                "appointmentGeneric",
+                Map.of(
+                        "customClient", Map.of(
+                                "enabled", true,
+                                "operations", Map.of(
+                                        "getAppointments", Map.of(
+                                                "method", "",
+                                                "path", ""
+                                        )
+                                )
+                        )
+                )
+        );
+
+        RuntimeConfigStore.RuntimeConfig invalid = new RuntimeConfigStore.RuntimeConfig(
+                "rev-invalid-1",
+                base.flows(),
+                base.idempotency(),
+                base.inboundDlq(),
+                base.keycloakProxy(),
+                base.messagingOutbox(),
+                base.restOutbox(),
+                base.restConnectors(),
+                base.crm(),
+                base.medical(),
+                appointment,
+                base.identity(),
+                base.visionLabsAnalytics(),
+                base.branchResolution(),
+                base.visitManager(),
+                base.dataBus()
+        );
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> store.applyManual(invalid, "qa", "invalid custom operation"));
+        assertTrue(ex.getMessage().contains("customClient.operations.getAppointments"));
+    }
+
+
+    @Test
+    void shouldProduceWarningForWriteOperationWithoutHeadersTemplate() {
+        RuntimeConfigStore store = new RuntimeConfigStore(
+                null,
+                new ObjectMapper(),
+                null,
+                "classpath:examples/sample-system-config.json",
+                false,
+                "/configuration/config/system/integrationbroker"
+        );
+
+        RuntimeConfigStore.RuntimeConfig base = store.getEffective();
+        RuntimeConfigStore.AppointmentConfig appointment = new RuntimeConfigStore.AppointmentConfig(
+                true,
+                RuntimeConfigStore.AppointmentProfile.CUSTOM_CONNECTOR,
+                "appointmentGeneric",
+                Map.of(
+                        "customClient", Map.of(
+                                "enabled", true,
+                                "operations", Map.of(
+                                        "bookSlot", Map.of(
+                                                "method", "POST",
+                                                "path", "/api/v2/book"
+                                        )
+                                )
+                        )
+                )
+        );
+
+        RuntimeConfigStore.RuntimeConfig cfg = new RuntimeConfigStore.RuntimeConfig(
+                "rev-warning-1",
+                base.flows(),
+                base.idempotency(),
+                base.inboundDlq(),
+                base.keycloakProxy(),
+                base.messagingOutbox(),
+                base.restOutbox(),
+                base.restConnectors(),
+                base.crm(),
+                base.medical(),
+                appointment,
+                base.identity(),
+                base.visionLabsAnalytics(),
+                base.branchResolution(),
+                base.visitManager(),
+                base.dataBus()
+        );
+
+        List<String> warnings = RuntimeConfigStore.collectAppointmentCustomOperationWarnings(cfg);
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.get(0).contains("bookSlot"));
+    }
+
 }

@@ -22,6 +22,7 @@ import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.aritmos.integrationbroker.adapters.VisitManagerConflictMetrics;
+import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
 import ru.aritmos.integrationbroker.core.InboundDlqService;
 import ru.aritmos.integrationbroker.core.IdempotencyService;
 import ru.aritmos.integrationbroker.core.InboundProcessingService;
@@ -37,6 +38,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Публичный REST ingress API Integration Broker.
@@ -57,6 +59,9 @@ public class InboundController {
     private final RestOutboxService restOutboxService;
     private final VisitManagerConflictMetrics visitManagerConflictMetrics;
     private final ObjectMapper objectMapper;
+    private final boolean inboundRateLimitEnabled;
+    private final int inboundRateLimitPerMinute;
+    private final ConcurrentHashMap<String, SourceRateWindow> inboundRateWindows = new ConcurrentHashMap<>();
 
     @Inject
     public InboundController(InboundProcessingService processingService,
@@ -66,7 +71,9 @@ public class InboundController {
                              MessagingOutboxService messagingOutboxService,
                              RestOutboxService restOutboxService,
                              VisitManagerConflictMetrics visitManagerConflictMetrics,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             @Value("${integrationbroker.inbound.rate-limit.enabled:false}") boolean inboundRateLimitEnabled,
+                             @Value("${integrationbroker.inbound.rate-limit.per-source-per-minute:120}") int inboundRateLimitPerMinute) {
         this.processingService = processingService;
         this.idempotencyService = idempotencyService;
         this.inboundDlqService = inboundDlqService;
@@ -75,6 +82,8 @@ public class InboundController {
         this.restOutboxService = restOutboxService;
         this.visitManagerConflictMetrics = visitManagerConflictMetrics;
         this.objectMapper = objectMapper;
+        this.inboundRateLimitEnabled = inboundRateLimitEnabled;
+        this.inboundRateLimitPerMinute = Math.max(1, inboundRateLimitPerMinute);
     }
 
     @Post(uri = "/inbound", consumes = MediaType.APPLICATION_JSON)
@@ -92,6 +101,17 @@ public class InboundController {
     public HttpResponse<InboundResult> inbound(@Body InboundEnvelope envelope) {
         try {
             InboundEnvelope normalized = normalizeCorrelation(envelope);
+            if (!allowInboundByRateLimit(normalized)) {
+                InboundResult rateLimited = new InboundResult(
+                        "RATE_LIMITED",
+                        null,
+                        Map.of("note", "Превышен лимит входящих сообщений по источнику"),
+                        null,
+                        "RATE_LIMIT",
+                        "Превышен лимит входящих сообщений по источнику"
+                );
+                return HttpResponse.status(HttpStatus.TOO_MANY_REQUESTS).body(rateLimited);
+            }
             InboundProcessingService.ProcessingResult res = processingService.process(normalized);
             InboundResult body = new InboundResult(res.outcome(), res.idempotencyKey(), res.output(), null, null, null);
 
@@ -133,6 +153,51 @@ public class InboundController {
         }
     }
 
+
+
+    private boolean allowInboundByRateLimit(InboundEnvelope envelope) {
+        if (!inboundRateLimitEnabled || envelope == null) {
+            return true;
+        }
+        String sourceKey = resolveSourceKey(envelope);
+        long minute = java.time.Instant.now().getEpochSecond() / 60L;
+        pruneStaleRateWindows(minute);
+        SourceRateWindow updated = inboundRateWindows.compute(sourceKey, (k, current) -> {
+            if (current == null || current.minuteEpoch() != minute) {
+                return new SourceRateWindow(minute, 1);
+            }
+            return new SourceRateWindow(current.minuteEpoch(), current.count() + 1);
+        });
+        return updated.count() <= inboundRateLimitPerMinute;
+    }
+
+    private String resolveSourceKey(InboundEnvelope envelope) {
+        Map<String, Object> meta = envelope.sourceMeta();
+        if (meta != null) {
+            Object source = meta.get("source");
+            if (source == null) {
+                source = meta.get("sourceSystem");
+            }
+            if (source == null) {
+                source = meta.get("system");
+            }
+            if (source != null && !String.valueOf(source).isBlank()) {
+                return String.valueOf(source).trim();
+            }
+        }
+        String byType = (envelope.type() == null || envelope.type().isBlank()) ? "unknown" : envelope.type().trim();
+        return String.valueOf(envelope.kind()) + ":" + byType;
+    }
+
+    private void pruneStaleRateWindows(long currentMinute) {
+        if (inboundRateWindows.size() <= 1024) {
+            return;
+        }
+        inboundRateWindows.entrySet().removeIf(entry -> entry.getValue().minuteEpoch() < currentMinute);
+    }
+
+    private record SourceRateWindow(long minuteEpoch, int count) {
+    }
     private InboundEnvelope normalizeCorrelation(InboundEnvelope envelope) {
         CorrelationContext context = CorrelationContext.fromInbound(envelope);
         Map<String, String> headers = envelope.headers() == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(envelope.headers());
@@ -297,6 +362,52 @@ class AdminIdempotencyController {
         return HttpResponse.ok(rec);
     }
 
+
+
+    @Get(uri = "/lookup")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Найти idempotency-запись по externalMessageId",
+            description = "Вычисляет idem_key на основе strategy и externalMessageId, затем ищет запись. " +
+                    "По умолчанию strategy=MESSAGE_ID."
+    )
+    @ApiResponse(responseCode = "200", description = "Запись найдена", content = @Content(schema = @Schema(implementation = IdempotencyService.IdempotencyRecord.class)))
+    @ApiResponse(responseCode = "404", description = "Запись не найдена")
+    public HttpResponse<IdempotencyService.IdempotencyRecord> lookupByExternalMessageId(
+            @Parameter(description = "Внешний message id") String externalMessageId,
+            @Parameter(description = "Стратегия вычисления ключа (MESSAGE_ID/AUTO/CORRELATION_ID/PAYLOAD_HASH)") String strategy) {
+
+        RuntimeConfigStore.IdempotencyStrategy resolved = RuntimeConfigStore.IdempotencyStrategy.MESSAGE_ID;
+        if (strategy != null && !strategy.isBlank()) {
+            try {
+                resolved = RuntimeConfigStore.IdempotencyStrategy.valueOf(strategy.trim().toUpperCase());
+            } catch (Exception ignore) {
+                return HttpResponse.status(HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        IdempotencyService.IdempotencyRecord rec = idempotencyService.findByExternalMessageId(externalMessageId, resolved);
+        if (rec == null) {
+            return HttpResponse.notFound();
+        }
+        return HttpResponse.ok(rec);
+    }
+
+
+    @Get(uri = "/audit/export")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Экспорт idempotency audit trail в JSON",
+            description = "Возвращает JSON-экспорт записей idempotency для последующего анализа и передачи в поддержку."
+    )
+    @ApiResponse(responseCode = "200", description = "Экспорт сформирован", content = @Content(schema = @Schema(implementation = IdempotencyAuditExportResponse.class)))
+    public IdempotencyAuditExportResponse exportAudit(
+            @Parameter(description = "Фильтр статуса (IN_PROGRESS/COMPLETED/FAILED)") String status,
+            @Parameter(description = "Лимит (1..200)") Integer limit) {
+        int lim = (limit == null) ? 100 : limit;
+        List<IdempotencyService.IdempotencyRecord> items = idempotencyService.list(status, lim);
+        return new IdempotencyAuditExportResponse(java.time.Instant.now().toString(), status, lim, items.size(), items);
+    }
     @Get
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(
@@ -343,6 +454,18 @@ class AdminIdempotencyController {
     ) {
     }
 
+
+
+    @Serdeable
+    @Schema(name = "IdempotencyAuditExportResponse", description = "JSON-экспорт idempotency записей")
+    record IdempotencyAuditExportResponse(
+            @Schema(description = "Время формирования экспорта") String exportedAt,
+            @Schema(description = "Применённый фильтр статуса") String status,
+            @Schema(description = "Применённый лимит") int limit,
+            @Schema(description = "Количество записей в экспорте") int count,
+            @Schema(description = "Записи idempotency") List<IdempotencyService.IdempotencyRecord> items
+    ) {
+    }
     @Serdeable
     @Schema(name = "IdempotencyUnlockRequest", description = "Запрос на ручную разморозку idempotency-ключа")
     record UnlockRequest(
@@ -426,6 +549,44 @@ class AdminInboundDlqController {
         return new DlqListResponse(inboundDlqService.list(status, type, source, branchId, lim));
     }
 
+
+
+    @Get(uri = "/{id}/preview")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Санитизированный preview payload для DLQ-записи",
+            description = "Возвращает укороченный и санитизированный текстовый preview payload для безопасной диагностики."
+    )
+    @ApiResponse(responseCode = "200", description = "Preview сформирован", content = @Content(schema = @Schema(implementation = DlqPayloadPreviewResponse.class)))
+    @ApiResponse(responseCode = "404", description = "Запись не найдена")
+    public HttpResponse<DlqPayloadPreviewResponse> preview(@PathVariable("id") long id,
+                                                           @Parameter(description = "Максимальная длина preview (1..4000)") Integer maxLen) {
+        int lim = maxLen == null ? 500 : Math.min(Math.max(1, maxLen), 4000);
+        String preview = inboundDlqService.sanitizedPayloadPreview(id, lim);
+        if (preview == null) {
+            return HttpResponse.notFound();
+        }
+        return HttpResponse.ok(new DlqPayloadPreviewResponse(id, lim, preview));
+    }
+
+    @Post(uri = "/mark-ignored-batch")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Массово пометить DLQ-записи как ignored",
+            description = "Выбирает записи по фильтрам и переводит их в DEAD с кодом IGNORED_BY_ADMIN и причиной."
+    )
+    @ApiResponse(responseCode = "200", description = "Операция выполнена", content = @Content(schema = @Schema(implementation = DlqMarkIgnoredResponse.class)))
+    public DlqMarkIgnoredResponse markIgnoredBatch(@Body DlqMarkIgnoredRequest request) {
+        String status = request == null ? InboundDlqService.Status.PENDING.name() : request.status();
+        String type = request == null ? null : request.type();
+        String source = request == null ? null : request.source();
+        String branchId = request == null ? null : request.branchId();
+        int requested = request == null || request.limit() == null ? 50 : request.limit();
+        int lim = Math.min(Math.max(1, requested), replayBatchLimitMax);
+        String reason = request == null ? null : request.reason();
+        int updated = inboundDlqService.markIgnoredBatch(status, type, source, branchId, lim, reason);
+        return new DlqMarkIgnoredResponse(updated, requested, lim);
+    }
     @Post(uri = "/{id}/replay")
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(
@@ -587,6 +748,37 @@ class AdminInboundDlqController {
     ) {
     }
 
+
+
+    @Serdeable
+    @Schema(name = "DlqPayloadPreviewResponse", description = "Санитизированный preview payload DLQ-записи")
+    record DlqPayloadPreviewResponse(
+            @Schema(description = "ID записи DLQ") long dlqId,
+            @Schema(description = "Лимит длины preview") int maxLength,
+            @Schema(description = "Санитизированный preview") String preview
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "DlqMarkIgnoredRequest", description = "Параметры массовой пометки DLQ-записей как ignored")
+    record DlqMarkIgnoredRequest(
+            @Schema(description = "Фильтр статуса (по умолчанию PENDING)") String status,
+            @Schema(description = "Фильтр по type") String type,
+            @Schema(description = "Фильтр по source/sourceSystem/system") String source,
+            @Schema(description = "Фильтр по branchId") String branchId,
+            @Schema(description = "Лимит (1..200)") Integer limit,
+            @Schema(description = "Причина пометки") String reason
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "DlqMarkIgnoredResponse", description = "Результат массовой пометки DLQ-записей как ignored")
+    record DlqMarkIgnoredResponse(
+            @Schema(description = "Количество изменённых записей") int updated,
+            @Schema(description = "Запрошенный лимит") int requestedLimit,
+            @Schema(description = "Применённый лимит") int appliedLimit
+    ) {
+    }
     @Serdeable
     @Schema(name = "DlqReplayBatchRequest", description = "Параметры пакетного replay inbound DLQ")
     record DlqReplayBatchRequest(
@@ -745,9 +937,10 @@ class AdminRestOutboxController {
     @ApiResponse(responseCode = "200", description = "Список", content = @Content(schema = @Schema(implementation = RestOutboxListResponse.class)))
     public RestOutboxListResponse list(
             @Parameter(description = "Фильтр статуса (PENDING/SENDING/SENT/DEAD)") String status,
+            @Parameter(description = "Фильтр connectorId (опционально)") String connectorId,
             @Parameter(description = "Лимит (1..200)") Integer limit) {
         int lim = (limit == null) ? 50 : limit;
-        return new RestOutboxListResponse(restOutboxService.list(status, lim));
+        return new RestOutboxListResponse(restOutboxService.list(status, connectorId, lim));
     }
 
     @Post(uri = "/{id}/replay")
@@ -769,10 +962,50 @@ class AdminRestOutboxController {
         return HttpResponse.ok(new AdminMessagingOutboxController.OutboxReplayResponse(id, reset, "PENDING"));
     }
 
+
+
+    @Post(uri = "/cancel-batch")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Массовая отмена queued REST outbox записей",
+            description = "Переводит PENDING-записи в DEAD по фильтрам connectorId/pathPrefix и фиксирует причину отмены."
+    )
+    @ApiResponse(responseCode = "200", description = "Операция выполнена", content = @Content(schema = @Schema(implementation = RestOutboxCancelBatchResponse.class)))
+    public RestOutboxCancelBatchResponse cancelBatch(@Body RestOutboxCancelBatchRequest request) {
+        String connectorId = request == null ? null : request.connectorId();
+        String pathPrefix = request == null ? null : request.pathPrefix();
+        String reason = request == null ? null : request.reason();
+        int requested = request == null || request.limit() == null ? 50 : request.limit();
+        int lim = Math.min(Math.max(1, requested), 200);
+        int cancelled = restOutboxService.cancelQueuedBatch(connectorId, pathPrefix, lim, reason);
+        return new RestOutboxCancelBatchResponse(cancelled, requested, lim, connectorId, pathPrefix);
+    }
     @Serdeable
     @Schema(name = "RestOutboxListResponse", description = "Ответ со списком записей REST outbox (без body)")
     record RestOutboxListResponse(
             @Schema(description = "Элементы списка") List<RestOutboxService.RestListItem> items
     ) {
     }
+
+    @Serdeable
+    @Schema(name = "RestOutboxCancelBatchRequest", description = "Параметры массовой отмены queued REST outbox записей")
+    record RestOutboxCancelBatchRequest(
+            @Schema(description = "Фильтр connectorId") String connectorId,
+            @Schema(description = "Фильтр префикса path") String pathPrefix,
+            @Schema(description = "Лимит (1..200)") Integer limit,
+            @Schema(description = "Причина отмены") String reason
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "RestOutboxCancelBatchResponse", description = "Результат массовой отмены queued REST outbox записей")
+    record RestOutboxCancelBatchResponse(
+            @Schema(description = "Количество отменённых записей") int cancelled,
+            @Schema(description = "Запрошенный лимит") int requestedLimit,
+            @Schema(description = "Применённый лимит") int appliedLimit,
+            @Schema(description = "Применённый connectorId фильтр") String connectorId,
+            @Schema(description = "Применённый pathPrefix фильтр") String pathPrefix
+    ) {
+    }
+
 }

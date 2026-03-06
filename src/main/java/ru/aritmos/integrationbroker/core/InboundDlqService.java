@@ -236,6 +236,51 @@ public class InboundDlqService {
         }
     }
 
+
+
+    public String sanitizedPayloadPreview(long id, int maxLen) {
+        DlqFull full = getFull(id);
+        if (full == null) {
+            return null;
+        }
+        String raw = toJsonSafe(full.payload());
+        String sanitized = SensitiveDataSanitizer.sanitizeText(raw);
+        if (sanitized == null) {
+            return null;
+        }
+        if (sanitized.length() <= maxLen) {
+            return sanitized;
+        }
+        return sanitized.substring(0, maxLen) + "...";
+    }
+
+    public int markIgnoredBatch(String status, String type, String source, String branchId, int limit, String reason) {
+        int lim = Math.min(Math.max(1, limit), 200);
+        List<DlqRecord> records = list(status, type, source, branchId, lim);
+        int changed = 0;
+        String msg = safeShort(reason == null ? "ignored by admin" : reason, 800);
+        Instant now = Instant.now();
+
+        for (DlqRecord rec : records) {
+            if (!Status.PENDING.name().equals(rec.status()) && !Status.DEAD.name().equals(rec.status()) && !Status.REPLAYED.name().equals(rec.status())) {
+                continue;
+            }
+            try (Connection c = dataSource.getConnection();
+                 PreparedStatement ps = c.prepareStatement(
+                         "UPDATE ib_inbound_dlq SET status=?, updated_at=?, last_error_at=?, error_code=?, error_message=? WHERE id=?")) {
+                ps.setString(1, Status.DEAD.name());
+                ps.setTimestamp(2, Timestamp.from(now));
+                ps.setTimestamp(3, Timestamp.from(now));
+                ps.setString(4, "IGNORED_BY_ADMIN");
+                ps.setString(5, msg);
+                ps.setLong(6, rec.id());
+                changed += ps.executeUpdate();
+            } catch (Exception ignore) {
+                // no-op
+            }
+        }
+        return changed;
+    }
     /**
      * Список DLQ.
      */

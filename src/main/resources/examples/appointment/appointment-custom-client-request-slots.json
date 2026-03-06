@@ -1,0 +1,18 @@
+{
+  "operation": "getAvailableSlots",
+  "meta": {
+    "correlationId": "corr-slots-001",
+    "requestId": "req-slots-001",
+    "idempotencyKey": "portal:slots:get:BR-1:CONSULT"
+  },
+  "request": {
+    "serviceCode": "CONSULT",
+    "locationId": "LOC-1",
+    "from": "2026-03-07T00:00:00Z",
+    "to": "2026-03-07T23:59:59Z",
+    "context": {
+      "branchId": "BR-1",
+      "doctorId": "DOC-55"
+    }
+  }
+}

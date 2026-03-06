@@ -37,3 +37,15 @@
 ## Практический совет
 
 Если у заказчика часто меняются правила обработки, держите эти правила в flow/Groovy, а не в Java-коде. Так изменения можно внедрять быстрее и безопаснее.
+
+
+## Матрица retry safety (рекомендации)
+
+| Тип операции | Примеры | Ретрай по 429/5xx | Условие безопасности |
+|---|---|---|---|
+| Read-only | `getAppointments`, `getAvailableSlots`, `GET` в VM/DB | Да | Операция не меняет состояние внешней системы |
+| Write idempotent | `book/cancel` с `Idempotency-Key` | Да | Обязателен `Idempotency-Key` + корреляция |
+| Write non-idempotent | create/update без ключа | Ограниченно | Только ручной replay после анализа последствий |
+| Async fan-out | DataBus publishEvent/route | Да | Envelope содержит `correlationId/requestId/idempotencyKey` |
+
+Практика: если есть сомнения в идемпотентности write-операции, сначала переводите поток в dry-run/ограниченный режим и делайте точечный replay.

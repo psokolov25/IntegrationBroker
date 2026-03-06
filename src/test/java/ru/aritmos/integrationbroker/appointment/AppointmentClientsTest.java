@@ -60,6 +60,100 @@ class AppointmentClientsTest {
         }
     }
 
+
+
+    @Test
+    void customConnectorProfile_shouldAutoGenerateCorrelationHeadersWhenMetaIsMissing() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        AtomicReference<String> corr = new AtomicReference<>();
+        AtomicReference<String> reqHeader = new AtomicReference<>();
+        server.createContext("/api/v1/appointments/search", ex -> {
+            corr.set(ex.getRequestHeaders().getFirst("X-Correlation-Id"));
+            reqHeader.set(ex.getRequestHeaders().getFirst("X-Request-Id"));
+            writeJson(ex, 200, "{\"data\":{\"items\":[]}}");
+        });
+        server.start();
+
+        try {
+            RuntimeConfigStore.RuntimeConfig cfg = customConfigWithCustomOp(
+                    "http://localhost:" + server.getAddress().getPort(),
+                    "getAppointments",
+                    Map.of("path", "/api/v1/appointments/search", "headersTemplate", Map.of(), "queryTemplate", Map.of())
+            );
+            AppointmentClient custom = new AppointmentCustomConnectorClient(() -> cfg, new ObjectMapper(), null);
+
+            AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> out = custom.getAppointments(
+                    new AppointmentModels.GetAppointmentsRequest(List.of(), null, null, Map.of()),
+                    Map.of()
+            );
+
+            assertTrue(out.success());
+            assertNotNull(corr.get());
+            assertNotNull(reqHeader.get());
+            assertFalse(corr.get().isBlank());
+            assertFalse(reqHeader.get().isBlank());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+
+    @Test
+    void customConnectorProfile_shouldTreat5xxAsRetryableByDefaultWithoutErrorMapping() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/appointments/search", ex -> writeJson(ex, 503, "{\"error\":\"TEMP_DOWN\"}"));
+        server.start();
+
+        try {
+            RuntimeConfigStore.RuntimeConfig cfg = customConfigWithCustomOp(
+                    "http://localhost:" + server.getAddress().getPort(),
+                    "getAppointments",
+                    Map.of("path", "/api/v1/appointments/search", "queryTemplate", Map.of(), "errorMapping", Map.of())
+            );
+            AppointmentClient custom = new AppointmentCustomConnectorClient(() -> cfg, new ObjectMapper(), null);
+
+            AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> out = custom.getAppointments(
+                    new AppointmentModels.GetAppointmentsRequest(List.of(), null, null, Map.of()),
+                    Map.of()
+            );
+
+            assertFalse(out.success());
+            assertEquals(503, out.details().get("httpStatus"));
+            assertEquals("ERROR_RETRYABLE", out.details().get("mappedOutcome"));
+            assertEquals(Boolean.TRUE, out.details().get("retriable"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void customConnectorProfile_shouldIncludeGeneratedCorrelationInDetails() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/appointments/search", ex -> writeJson(ex, 503, "{\"error\":\"TEMP_DOWN\"}"));
+        server.start();
+
+        try {
+            RuntimeConfigStore.RuntimeConfig cfg = customConfigWithCustomOp(
+                    "http://localhost:" + server.getAddress().getPort(),
+                    "getAppointments",
+                    Map.of("path", "/api/v1/appointments/search", "queryTemplate", Map.of(), "errorMapping", Map.of())
+            );
+            AppointmentClient custom = new AppointmentCustomConnectorClient(() -> cfg, new ObjectMapper(), null);
+
+            AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> out = custom.getAppointments(
+                    new AppointmentModels.GetAppointmentsRequest(List.of(), null, null, Map.of()),
+                    Map.of()
+            );
+
+            assertFalse(out.success());
+            assertNotNull(out.details().get("correlationId"));
+            assertNotNull(out.details().get("requestId"));
+            assertFalse(String.valueOf(out.details().get("correlationId")).isBlank());
+            assertFalse(String.valueOf(out.details().get("requestId")).isBlank());
+        } finally {
+            server.stop(0);
+        }
+    }
     @Test
     void customConnectorProfile_shouldExposeRetryableErrorOn429() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);

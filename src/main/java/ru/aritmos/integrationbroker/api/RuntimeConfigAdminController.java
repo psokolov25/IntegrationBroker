@@ -59,7 +59,12 @@ public class RuntimeConfigAdminController {
         if (normalized.restConnectors() == null || normalized.restConnectors().isEmpty()) {
             warnings.add("Не задано ни одного rest-connector");
         }
-        return new DryRunResponse(true, warnings, normalized.revision());
+        List<String> validationErrors = RuntimeConfigStore.validateAppointmentCustomOperations(normalized);
+        for (String err : validationErrors) {
+            warnings.add("ERROR: " + err);
+        }
+        warnings.addAll(RuntimeConfigStore.collectAppointmentCustomOperationWarnings(normalized));
+        return new DryRunResponse(validationErrors.isEmpty(), warnings, normalized.revision());
     }
 
     @Put

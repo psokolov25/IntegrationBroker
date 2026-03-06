@@ -47,3 +47,28 @@
 - Не передавайте секреты в открытых каналах.
 - Используйте только sanitized-выгрузки.
 - Давайте доступ к admin API только нужным ролям.
+
+
+## Playbook: деградации 429/5xx (внешние REST/appointment custom connector)
+
+### Симптомы
+- всплеск `PENDING/DEAD` в outbox;
+- рост ошибок вида `ERROR_RETRYABLE`;
+- увеличение времени обработки и количества replay.
+
+### Что проверить за 5 минут
+1. `GET /api/metrics/integration` — оценить масштаб и тип деградации.
+2. `GET /admin/dlq?status=PENDING&limit=50` — есть ли единый тип падения.
+3. `GET /admin/outbox/rest?status=DEAD&limit=50` — проверить повторяемость по connector/path.
+4. Для appointment custom connector проверить `details.httpStatus`, `details.mappedOutcome`, `details.retriable`.
+
+### Действия
+1. Если это transient 429/5xx — увеличить окно ретраев и не запускать массовый replay write-операций без idempotency key.
+2. Для read-операций (`get*`) допускается batch replay после восстановления поставщика.
+3. Для write-операций (`book/cancel`) запускать replay только при наличии `Idempotency-Key`.
+4. Если деградация длится > 15 минут — перевести appointment profile на fallback (`GENERIC`) до стабилизации.
+
+### Критерий стабилизации
+- `ERROR_RETRYABLE` снижается до фонового уровня;
+- новые записи outbox переходят в `SENT`;
+- replay последних `PENDING` завершается без роста `DEAD`.

@@ -1,0 +1,24 @@
+{
+  "operation": "getAppointments",
+  "meta": {
+    "correlationId": "corr-apt-429-001",
+    "requestId": "req-apt-429-001",
+    "idempotencyKey": "crm:appointment:get:C-700"
+  },
+  "request": {
+    "keys": [
+      {"type": "clientId", "value": "C-700"}
+    ],
+    "from": "2026-03-06T00:00:00Z",
+    "to": "2026-03-10T23:59:59Z",
+    "context": {
+      "branchId": "BR-1",
+      "serviceCode": "CONSULT"
+    }
+  },
+  "expected": {
+    "httpStatus": 429,
+    "mappedOutcome": "ERROR_RETRYABLE",
+    "retriable": true
+  }
+}

@@ -21,6 +21,7 @@ import java.util.Map;
 public class DataBusApiImpl implements DataBusApi {
 
     private static final int DEFAULT_MAX_PAYLOAD_BYTES = 262_144;
+    private static final int DEFAULT_MAX_HEADERS_BYTES = 8_192;
     private static final DateTimeFormatter RFC1123 = DateTimeFormatter.RFC_1123_DATE_TIME;
 
     private final DataBusGroovyAdapter dataBus;
@@ -66,6 +67,7 @@ public class DataBusApiImpl implements DataBusApi {
         Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events.route", effectiveType, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, payload);
         ensurePayloadWithinLimit(envelope.get("payload"));
         envelope.put("routeDataBusUrls", normalizedRouteUrls);
+        validateRouteEnvelope(envelope, normalizedRouteUrls);
         if (normalizedRouteUrls.isEmpty()) {
             return responseWithFanOutReport("events.route", 0, envelope, requestedRouteCount, normalizedRouteCount, 0, "FAILED");
         }
@@ -175,7 +177,9 @@ public class DataBusApiImpl implements DataBusApi {
         envelope.put("idempotencyKey", resolvedIdempotencyKey);
         envelope.put("payload", payload);
         Map<String, Object> ibMeta = buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey);
-        ibMeta.put("requiredHeaders", buildMandatoryHeaders(destination, sendToOtherBus, resolvedCorrelationId, resolvedRequestId));
+        Map<String, Object> requiredHeaders = buildMandatoryHeaders(destination, sendToOtherBus, resolvedCorrelationId, resolvedRequestId);
+        ensureHeadersWithinLimit(requiredHeaders);
+        ibMeta.put("requiredHeaders", requiredHeaders);
         envelope.put("_ib", ibMeta);
         envelope.put("params", buildIntegrationMetadata(resolvedCorrelationId, resolvedRequestId, resolvedIdempotencyKey));
         envelope.put("request", null);
@@ -243,6 +247,57 @@ public class DataBusApiImpl implements DataBusApi {
         return out;
     }
 
+
+
+    private void validateRouteEnvelope(Map<String, Object> envelope, List<String> routeUrls) {
+        if (envelope == null) {
+            throw new IllegalArgumentException("DataBus route envelope отсутствует");
+        }
+        Object destination = envelope.get("destination");
+        if (destination == null || String.valueOf(destination).isBlank()) {
+            throw new IllegalArgumentException("DataBus route envelope: destination обязателен");
+        }
+        if (routeUrls == null) {
+            throw new IllegalArgumentException("DataBus route envelope: routeDataBusUrls обязателен");
+        }
+
+        Map<String, Object> ibMeta = mapOfObjects(envelope.get("_ib"));
+        Map<String, Object> requiredHeaders = mapOfObjects(ibMeta.get("requiredHeaders"));
+
+        if (requiredHeaders.isEmpty()) {
+            throw new IllegalArgumentException("DataBus route envelope: requiredHeaders отсутствуют");
+        }
+        if (!requiredHeaders.containsKey("Service-Sender") || !requiredHeaders.containsKey("Send-Date")) {
+            throw new IllegalArgumentException("DataBus route envelope: обязательные Service-Sender/Send-Date отсутствуют");
+        }
+    }
+
+
+    private void ensureHeadersWithinLimit(Map<String, Object> headers) {
+        int maxBytes = resolveMaxHeadersBytes();
+        if (maxBytes <= 0 || headers == null || headers.isEmpty()) {
+            return;
+        }
+        int sizeBytes = String.valueOf(headers).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        if (sizeBytes > maxBytes) {
+            throw new IllegalArgumentException("DataBus headers превышают лимит: " + sizeBytes + " > " + maxBytes + " bytes");
+        }
+    }
+
+    private int resolveMaxHeadersBytes() {
+        String value = System.getProperty("ib.databus.max-headers-bytes");
+        if (value == null || value.isBlank()) {
+            value = System.getenv("IB_DATABUS_MAX_HEADERS_BYTES");
+        }
+        if (value == null || value.isBlank()) {
+            return DEFAULT_MAX_HEADERS_BYTES;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_MAX_HEADERS_BYTES;
+        }
+    }
     private void ensurePayloadWithinLimit(Object payload) {
         int maxBytes = resolveMaxPayloadBytes();
         if (maxBytes <= 0 || payload == null) {
@@ -269,6 +324,20 @@ public class DataBusApiImpl implements DataBusApi {
         }
     }
 
+
+
+    private Map<String, Object> mapOfObjects(Object raw) {
+        if (!(raw instanceof Map<?, ?> m) || m.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : m.entrySet()) {
+            if (e.getKey() != null) {
+                out.put(String.valueOf(e.getKey()), e.getValue());
+            }
+        }
+        return out;
+    }
     private String normalize(String value) {
         if (value == null) {
             return null;

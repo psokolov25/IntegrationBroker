@@ -298,17 +298,36 @@ private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig c
     }
 
     public List<RestListItem> list(String status, int limit) {
+        return list(status, null, limit);
+    }
+
+    public List<RestListItem> list(String status, String connectorId, int limit) {
         int lim = Math.min(Math.max(1, limit), 200);
         List<RestListItem> out = new ArrayList<>();
-        String sql = (status == null || status.isBlank())
-                ? "SELECT id, status, http_method, url, connector_id, path, attempts, max_attempts, next_attempt_at, updated_at FROM ib_rest_outbox ORDER BY updated_at DESC LIMIT ?"
-                : "SELECT id, status, http_method, url, connector_id, path, attempts, max_attempts, next_attempt_at, updated_at FROM ib_rest_outbox WHERE status=? ORDER BY updated_at DESC LIMIT ?";
+        boolean filterStatus = status != null && !status.isBlank();
+        boolean filterConnector = connectorId != null && !connectorId.isBlank();
+
+        StringBuilder sql = new StringBuilder("SELECT id, status, http_method, url, connector_id, path, attempts, max_attempts, next_attempt_at, updated_at FROM ib_rest_outbox");
+        List<String> where = new ArrayList<>();
+        if (filterStatus) {
+            where.add("status=?");
+        }
+        if (filterConnector) {
+            where.add("connector_id=?");
+        }
+        if (!where.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", where));
+        }
+        sql.append(" ORDER BY updated_at DESC LIMIT ?");
 
         try (Connection c = dataSource.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
+             PreparedStatement ps = c.prepareStatement(sql.toString())) {
             int idx = 1;
-            if (status != null && !status.isBlank()) {
+            if (filterStatus) {
                 ps.setString(idx++, status);
+            }
+            if (filterConnector) {
+                ps.setString(idx++, connectorId);
             }
             ps.setInt(idx, lim);
             try (ResultSet rs = ps.executeQuery()) {
@@ -333,6 +352,40 @@ private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig c
         return out;
     }
 
+
+
+    public int cancelQueuedBatch(String connectorId, String pathPrefix, int limit, String reason) {
+        int lim = Math.min(Math.max(1, limit), 200);
+        List<RestListItem> pending = list(Status.PENDING.name(), connectorId, lim);
+        int changed = 0;
+        String prefix = pathPrefix == null ? null : pathPrefix.trim();
+        String safeReason = safeShort(reason, 500, "cancelled by admin");
+        Instant now = Instant.now();
+
+        for (RestListItem item : pending) {
+            if (prefix != null && !prefix.isBlank()) {
+                String path = item.path() == null ? "" : item.path();
+                if (!path.startsWith(prefix)) {
+                    continue;
+                }
+            }
+            try (Connection c = dataSource.getConnection();
+                 PreparedStatement ps = c.prepareStatement(
+                         "UPDATE ib_rest_outbox SET status=?, updated_at=?, last_error_at=?, last_error_code=?, last_error_message=? WHERE id=? AND status=?")) {
+                ps.setString(1, Status.DEAD.name());
+                ps.setTimestamp(2, Timestamp.from(now));
+                ps.setTimestamp(3, Timestamp.from(now));
+                ps.setString(4, "CANCELLED_BY_ADMIN");
+                ps.setString(5, safeReason);
+                ps.setLong(6, item.id());
+                ps.setString(7, Status.PENDING.name());
+                changed += ps.executeUpdate();
+            } catch (Exception ignore) {
+                // no-op
+            }
+        }
+        return changed;
+    }
     public List<RestRecord> pickDue(int limit) {
         int lim = Math.min(Math.max(1, limit), 200);
         List<RestRecord> out = new ArrayList<>();

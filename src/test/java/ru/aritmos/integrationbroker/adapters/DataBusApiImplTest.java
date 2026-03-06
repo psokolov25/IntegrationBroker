@@ -202,6 +202,25 @@ class DataBusApiImplTest {
     }
 
 
+
+
+    @Test
+    void publishEvent_shouldFailWhenHeadersExceedLimit() {
+        String old = System.getProperty("ib.databus.max-headers-bytes");
+        System.setProperty("ib.databus.max-headers-bytes", "10");
+        try {
+            StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+            DataBusApiImpl api = new DataBusApiImpl(stub, null);
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> api.publishEvent("target-1", "visit.created", "crm", Map.of("visitId", "V-1"), false, "src-1", "corr-1", "idem-1"));
+        } finally {
+            if (old == null) {
+                System.clearProperty("ib.databus.max-headers-bytes");
+            } else {
+                System.setProperty("ib.databus.max-headers-bytes", old);
+            }
+        }
+    }
     @Test
     void publishEvent_shouldFallbackIdempotencyKeyFromSourceMessageId() {
         StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
@@ -532,6 +551,59 @@ class DataBusApiImplTest {
         assertEquals("src-500", envelope.get("correlationId"));
     }
 
+
+
+    @Test
+    void publishEventRoute_shouldExposeMandatoryHeadersInEnvelope() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishEventRoute("target-1", "crm", "visit.created", List.of("http://bus-2"), Map.of("visitId", "V-2"), "src-2", "corr-2", "idem-2");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ib = (Map<String, Object>) envelope.get("_ib");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> requiredHeaders = (Map<String, Object>) ib.get("requiredHeaders");
+        assertEquals("integration-broker", requiredHeaders.get("Service-Sender"));
+        assertNotNull(requiredHeaders.get("Send-Date"));
+        assertEquals("crm", requiredHeaders.get("Service-Destination"));
+    }
+
+    @Test
+    void sendRequest_shouldExposeMandatoryHeadersInEnvelope() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.sendRequest("target-1", "crm", "syncCustomer", Map.of("id", "1"), false, "src-3", "corr-3", "idem-3");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ib = (Map<String, Object>) envelope.get("_ib");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> requiredHeaders = (Map<String, Object>) ib.get("requiredHeaders");
+        assertEquals("integration-broker", requiredHeaders.get("Service-Sender"));
+        assertNotNull(requiredHeaders.get("Send-Date"));
+    }
+
+    @Test
+    void sendResponse_shouldExposeMandatoryHeadersInEnvelope() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.sendResponse("target-1", "crm", 200, "ok", Map.of("accepted", true), false, "src-4", "corr-4", "idem-4");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ib = (Map<String, Object>) envelope.get("_ib");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> requiredHeaders = (Map<String, Object>) ib.get("requiredHeaders");
+        assertEquals("integration-broker", requiredHeaders.get("Service-Sender"));
+        assertNotNull(requiredHeaders.get("Send-Date"));
+    }
     private RuntimeConfigStore runtimeConfigStoreWithSender(String sender) {
         RuntimeConfigStore.DataBusIntegrationConfig cfg = new RuntimeConfigStore.DataBusIntegrationConfig(
                 true,
