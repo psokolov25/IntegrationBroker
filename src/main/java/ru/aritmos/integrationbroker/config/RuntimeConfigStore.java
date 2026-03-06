@@ -854,6 +854,8 @@ public class RuntimeConfigStore {
         YCLIENTS_LIKE,
         /** НАПОПРАВКУ-подобная интеграция (маркетплейс/агрегатор). */
         NAPOPRAVKU_LIKE,
+        /** Кастомный коннектор на базе restConnectors + шаблонов request/response (visual builder). */
+        CUSTOM_CONNECTOR,
         /** Обобщённый профиль (детерминированная заглушка для разработки). */
         GENERIC
     }
