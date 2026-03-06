@@ -230,17 +230,30 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             int status = resp.statusCode();
             if (status >= 200 && status < 300) {
                 JsonNode body = parseJson(resp.body());
-                return VendorCallResult.ok(body, operation, Map.of("httpStatus", status, "operation", operationName));
+                Map<String, Object> okDetails = new LinkedHashMap<>();
+                okDetails.put("httpStatus", status);
+                okDetails.put("operation", operationName);
+                okDetails.put("correlationId", cc.correlationId());
+                okDetails.put("requestId", cc.requestId());
+                return VendorCallResult.ok(body, operation, okDetails);
             }
             String mapped = mapHttpError(operation, status);
             if ("OK_EMPTY".equals(mapped)) {
-                return VendorCallResult.ok(parseJson("{\"data\":{\"items\":[]}}"), operation, Map.of("httpStatus", status, "operation", operationName, "mappedOutcome", mapped));
+                Map<String, Object> emptyDetails = new LinkedHashMap<>();
+                emptyDetails.put("httpStatus", status);
+                emptyDetails.put("operation", operationName);
+                emptyDetails.put("mappedOutcome", mapped);
+                emptyDetails.put("correlationId", cc.correlationId());
+                emptyDetails.put("requestId", cc.requestId());
+                return VendorCallResult.ok(parseJson("{\"data\":{\"items\":[]}}"), operation, emptyDetails);
             }
             boolean retriable = "ERROR_RETRYABLE".equals(mapped);
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("httpStatus", status);
             details.put("mappedOutcome", mapped);
             details.put("retriable", retriable);
+            details.put("correlationId", cc.correlationId());
+            details.put("requestId", cc.requestId());
             String responseSnippet = safeBodySnippet(resp.body());
             if (!isBlank(responseSnippet)) {
                 details.put("responseSnippet", responseSnippet);
@@ -251,6 +264,8 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             details.put("operation", operationName);
             details.put("errorClass", ex.getClass().getSimpleName());
             details.put("retriable", isRetryableTransportError(ex));
+            details.put("correlationId", cc.correlationId());
+            details.put("requestId", cc.requestId());
             return VendorCallResult.error("Ошибка вызова custom connector: " + safe(ex.getMessage()), details);
         }
     }
@@ -593,7 +608,14 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
 
     private static String mapHttpError(Map<String, Object> operation, int status) {
         Map<String, Object> mapping = asMap(operation.get("errorMapping"));
-        return asString(mapping.get(String.valueOf(status)), "ERROR");
+        String mapped = asString(mapping.get(String.valueOf(status)), "");
+        if (!isBlank(mapped)) {
+            return mapped;
+        }
+        if (status == 429 || status >= 500) {
+            return "ERROR_RETRYABLE";
+        }
+        return "ERROR";
     }
 
     private static String buildUrl(String baseUrl, String path, Map<String, String> query) {

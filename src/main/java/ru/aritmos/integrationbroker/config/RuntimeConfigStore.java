@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -188,6 +189,11 @@ public class RuntimeConfigStore {
                 VisitManagerIntegrationConfig.disabled(),
                 DataBusIntegrationConfig.disabled()
         ) : candidate).normalize();
+
+        List<String> errors = validateAppointmentCustomOperations(normalized);
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException(String.join("; ", errors));
+        }
 
         RuntimeConfig prev = effective.getAndSet(normalized);
         appendAudit(actor, "MANUAL_UPDATE", prev, normalized, reason == null ? "Ручное обновление" : reason);
@@ -419,6 +425,86 @@ public class RuntimeConfigStore {
         if (!Objects.equals(previous.dataBus(), current.dataBus())) changed.add("dataBus");
 
         return changed.isEmpty() ? "no-changes" : String.join(",", changed);
+    }
+
+
+    public static List<String> validateAppointmentCustomOperations(RuntimeConfig cfg) {
+        List<String> errors = new ArrayList<>();
+        if (cfg == null || cfg.appointment() == null) {
+            return errors;
+        }
+        AppointmentConfig appointment = cfg.appointment();
+        if (appointment.profile() != AppointmentProfile.CUSTOM_CONNECTOR || appointment.settings() == null) {
+            return errors;
+        }
+        Map<String, Object> customClient = toStringObjectMap(appointment.settings().get("customClient"));
+        Map<String, Object> operations = toStringObjectMap(customClient.get("operations"));
+        for (Map.Entry<String, Object> e : operations.entrySet()) {
+            String opName = e.getKey();
+            Map<String, Object> op = toStringObjectMap(e.getValue());
+            String method = asTrimmed(op.get("method"));
+            String path = asTrimmed(op.get("path"));
+            if (method == null || method.isBlank()) {
+                errors.add("appointment.customClient.operations." + opName + ": отсутствует обязательное поле method");
+            }
+            if (path == null || path.isBlank()) {
+                errors.add("appointment.customClient.operations." + opName + ": отсутствует обязательное поле path");
+            }
+        }
+        return errors;
+    }
+
+
+
+    public static List<String> collectAppointmentCustomOperationWarnings(RuntimeConfig cfg) {
+        List<String> warnings = new ArrayList<>();
+        if (cfg == null || cfg.appointment() == null) {
+            return warnings;
+        }
+        AppointmentConfig appointment = cfg.appointment();
+        if (appointment.profile() != AppointmentProfile.CUSTOM_CONNECTOR || appointment.settings() == null) {
+            return warnings;
+        }
+        Map<String, Object> customClient = toStringObjectMap(appointment.settings().get("customClient"));
+        Map<String, Object> operations = toStringObjectMap(customClient.get("operations"));
+        for (Map.Entry<String, Object> e : operations.entrySet()) {
+            String opName = e.getKey();
+            Map<String, Object> op = toStringObjectMap(e.getValue());
+            String method = asTrimmed(op.get("method"));
+            if (method == null) {
+                continue;
+            }
+            String upper = method.toUpperCase();
+            boolean writeLike = !("GET".equals(upper) || "HEAD".equals(upper) || "OPTIONS".equals(upper) || "TRACE".equals(upper));
+            if (!writeLike) {
+                continue;
+            }
+            Map<String, Object> headersTemplate = toStringObjectMap(op.get("headersTemplate"));
+            if (headersTemplate.isEmpty()) {
+                warnings.add("appointment.customClient.operations." + opName + ": для write-операции рекомендуется непустой headersTemplate (минимум correlation/request/idempotency)");
+            }
+        }
+        return warnings;
+    }
+    private static Map<String, Object> toStringObjectMap(Object value) {
+        if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : map.entrySet()) {
+            if (e.getKey() != null) {
+                out.put(String.valueOf(e.getKey()), e.getValue());
+            }
+        }
+        return out;
+    }
+
+    private static String asTrimmed(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String s = String.valueOf(value);
+        return s.isBlank() ? null : s.trim();
     }
 
     public record RuntimeConfigAuditEntry(

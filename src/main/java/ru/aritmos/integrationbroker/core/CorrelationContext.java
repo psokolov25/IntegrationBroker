@@ -33,12 +33,15 @@ public record CorrelationContext(String correlationId, String requestId) {
             return resolve(null, null);
         }
         String corr = envelope.correlationId();
-        String req = envelope.messageId();
+        String req = null;
+        if (envelope.headers() != null) {
+            req = firstHeader(envelope.headers(), "X-Request-Id");
+        }
         if ((corr == null || corr.isBlank()) && envelope.headers() != null) {
             corr = firstHeader(envelope.headers(), "X-Correlation-Id");
         }
-        if ((req == null || req.isBlank()) && envelope.headers() != null) {
-            req = firstHeader(envelope.headers(), "X-Request-Id");
+        if (req == null || req.isBlank()) {
+            req = envelope.messageId();
         }
         return resolve(corr, req);
     }

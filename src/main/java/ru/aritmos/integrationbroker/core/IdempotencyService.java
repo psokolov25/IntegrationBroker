@@ -270,6 +270,22 @@ public class IdempotencyService {
     /**
      * Простая метрика: количество записей по статусу.
      */
+
+
+    /**
+     * Найти запись идемпотентности по внешнему messageId/externalMessageId.
+     * Полезно для диагностики при известном внешнем идентификаторе, но неизвестном hash-ключе.
+     */
+    public IdempotencyRecord findByExternalMessageId(String externalMessageId, RuntimeConfigStore.IdempotencyStrategy strategy) {
+        if (externalMessageId == null || externalMessageId.isBlank()) {
+            return null;
+        }
+        RuntimeConfigStore.IdempotencyStrategy eff = strategy == null
+                ? RuntimeConfigStore.IdempotencyStrategy.MESSAGE_ID
+                : strategy;
+        String material = eff.name() + ":" + externalMessageId.trim();
+        return get(sha256Hex(material));
+    }
     public long countByStatus(Status status) {
         Objects.requireNonNull(status, "status");
         try (Connection c = dataSource.getConnection();

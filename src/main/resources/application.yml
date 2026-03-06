@@ -36,6 +36,11 @@ endpoints:
 #  - держать базовую конфигурацию локально (classpath)
 #  - включать удалённую конфигурацию только при наличии доверенного SystemConfiguration
 integrationbroker:
+  inbound:
+    rate-limit:
+      enabled: false
+      per-source-per-minute: 120
+
   local-config:
     # Путь к локальной конфигурации flow (JSON). По умолчанию используем файл из examples.
     # В реальном проекте следует вынести в отдельный ресурс (например, integrationbroker/system-config.json).

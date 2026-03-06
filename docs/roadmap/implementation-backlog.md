@@ -86,3 +86,47 @@
 58. `DONE` Добавить server-side limit guard и UI hint для больших batch replay.
 59. `DONE` Добавить audit события для replay batch запросов.
 60. `DONE` Подготовить release notes по пакету 02 и обновить README ссылками.
+
+
+## 6) Пакет 03 (40 задач)
+
+61. `DONE` Appointment custom connector: автогенерация `X-Correlation-Id`/`X-Request-Id` при пустом meta (unit coverage).
+62. `DONE` Appointment custom connector: дефолтное правило `429/5xx -> ERROR_RETRYABLE` даже без `errorMapping`.
+63. `DONE` Appointment custom connector: возвращать `correlationId/requestId` в `details` исхода вызова.
+64. `DONE` Добавить пример `appointment-custom-client-settings-extended.json` для `getAppointments/getAvailableSlots/bookSlot`.
+65. `DONE` Добавить пример `appointment-custom-client-request-rate-limit.json`.
+66. `DONE` Добавить пример `appointment-custom-client-request-slots.json`.
+67. `DONE` RuntimeConfig: добавить server-side валидацию обязательных operation полей (`method/path`).
+68. `DONE` RuntimeConfig: добавить предупреждение на пустой `headersTemplate` для write-операций.
+69. `DONE` Outbox: добавить фильтр по `connectorId` в admin list endpoint.
+70. `DONE` Outbox: добавить endpoint массовой отмены queued записей по фильтру.
+71. `DONE` DLQ: добавить preview sanitized payload по `id`.
+72. `DONE` DLQ: добавить массовую маркировку записей как ignored с reason.
+73. `DONE` Idempotency: endpoint поиска по `externalMessageId`.
+74. `DONE` Idempotency: экспорт audit trail в JSON.
+75. `TODO` VisitManagerApi: покрыть интеграционными тестами `sid` cookie для servicepoint enter/exit.
+76. `TODO` VisitManagerApi: добавить mapping 207/401 для servicepoint вызовов.
+77. `DONE` DataBusApi: добавить envelope validator для `publishEventRoute`.
+78. `DONE` DataBusApi: добавить unit-тесты на mandatory headers в route/request/response.
+79. `DONE` DataBusApi: добавить limit guard для headers payload size.
+80. `TODO` Core retry: поддержать jitter для экспоненциального backoff.
+81. `TODO` Core circuit breaker: добавить half-open probe policy в runtime-config.
+82. `TODO` Core observability: добавить latency histogram для outbound connectors.
+83. `TODO` Security: скрывать токены в admin endpoints ответах.
+84. `TODO` Security: добавить тесты на READONLY mode для admin POST/PUT.
+85. `TODO` Keycloak proxy: добавить fallback claim strategy для `preferred_username`.
+86. `DONE` Inbound API: поддержать `X-Request-Id` passthrough при наличии.
+87. `DONE` Inbound API: добавить опциональный rate-limit per source.
+88. `TODO` Workbench monitoring: добавить график latencies по коннекторам.
+89. `TODO` Workbench replay: добавить просмотр sanitized payload diff до/после.
+90. `TODO` Workbench integrations: добавить drill-down по degraded причинам.
+91. `TODO` Workbench runtime config: подсветка risky changes перед сохранением.
+92. `TODO` Workbench auth: добавить session-expiry banner + автоlogout.
+93. `DONE` Docs user-guide: добавить раздел по correlation/idempotency best practices.
+94. `DONE` Docs support-runbook: добавить playbook по 429/5xx деградациям.
+95. `DONE` Docs implementation-guide: добавить matrix retry safety per operation type.
+96. `TODO` Examples: добавить end-to-end сценарий VM createVisit -> DB publishEvent.
+97. `TODO` Examples: добавить сценарий fallback на generic appointment profile.
+98. `DONE` Tests: контрактные тесты examples JSON (schema-smoke).
+99. `DONE` Tests: добавить regression suite для sanitizer на headers/body snippets.
+100. `DONE` Release notes: подготовить пакет 03 summary и checklist внедрения.
