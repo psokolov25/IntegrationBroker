@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Singleton;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +23,7 @@ public class AppointmentClients {
     private final AppointmentClient prodoctorovLike;
     private final AppointmentClient yclientsLike;
     private final AppointmentClient napopravkuLike;
+    private final AppointmentClient customConnector;
     private final AppointmentClient generic;
 
     public AppointmentClients(ObjectMapper objectMapper) {
@@ -31,6 +33,7 @@ public class AppointmentClients {
         this.prodoctorovLike = new NotImplementedAppointmentClient("PRODOCTOROV_LIKE");
         this.yclientsLike = new NotImplementedAppointmentClient("YCLIENTS_LIKE");
         this.napopravkuLike = new NotImplementedAppointmentClient("NAPOPRAVKU_LIKE");
+        this.customConnector = new NotImplementedAppointmentClient("CUSTOM_CONNECTOR");
         this.generic = new GenericAppointmentClient();
     }
 
@@ -52,6 +55,10 @@ public class AppointmentClients {
 
     public AppointmentClient napopravkuLike() {
         return napopravkuLike;
+    }
+
+    public AppointmentClient customConnector() {
+        return customConnector;
     }
 
     public AppointmentClient generic() {
@@ -108,23 +115,65 @@ public class AppointmentClients {
 
         @Override
         public AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> getAppointments(AppointmentModels.GetAppointmentsRequest request, Map<String, Object> meta) {
-            AppointmentModels.Appointment a = demoAppointment(firstKey(request == null ? null : request.keys()));
-            return AppointmentModels.AppointmentOutcome.ok(List.of(a));
+            String key = firstKey(request == null ? null : request.keys());
+            String serviceCode = resolveServiceCode(request == null ? null : request.context(), "CONSULT");
+            String branchId = resolveBranchId(request == null ? null : request.context());
+
+            List<AppointmentModels.Appointment> generated = List.of(
+                    demoAppointment(key, serviceCode, branchId),
+                    appointmentWithOffset(key, serviceCode, branchId, 3600, 5400, "APPT-FOLLOW-UP", "302"),
+                    appointmentWithOffset(key, serviceCode, branchId, -7200, -5400, "APPT-HISTORY", "300")
+            );
+
+            Instant from = request == null ? null : request.from();
+            Instant to = request == null ? null : request.to();
+
+            List<AppointmentModels.Appointment> filtered = generated.stream()
+                    .filter(a -> inRange(a.startAt(), from, to))
+                    .sorted(Comparator.comparing(AppointmentModels.Appointment::startAt))
+                    .toList();
+
+            return AppointmentModels.AppointmentOutcome.ok(filtered);
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> getNearestAppointment(AppointmentModels.GetNearestAppointmentRequest request, Map<String, Object> meta) {
-            return AppointmentModels.AppointmentOutcome.ok(demoAppointment(firstKey(request == null ? null : request.keys())));
+            String key = firstKey(request == null ? null : request.keys());
+            String serviceCode = resolveServiceCode(request == null ? null : request.context(), "CONSULT");
+            String branchId = resolveBranchId(request == null ? null : request.context());
+            List<AppointmentModels.Appointment> candidates = List.of(
+                    demoAppointment(key, serviceCode, branchId),
+                    appointmentWithOffset(key, serviceCode, branchId, 2700, 4500, "APPT-ALT", "302")
+            );
+            AppointmentModels.Appointment nearest = candidates.stream()
+                    .filter(a -> "CONFIRMED".equalsIgnoreCase(a.status()))
+                    .min(Comparator.comparing(AppointmentModels.Appointment::startAt))
+                    .orElseGet(() -> demoAppointment(key, serviceCode, branchId));
+            return AppointmentModels.AppointmentOutcome.ok(nearest);
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<List<AppointmentModels.Slot>> getAvailableSlots(AppointmentModels.GetAvailableSlotsRequest request, Map<String, Object> meta) {
-            Instant now = deterministicBaseTime(request == null ? null : request.serviceCode());
             String svc = request == null ? null : request.serviceCode();
-            List<AppointmentModels.Slot> slots = List.of(
-                    new AppointmentModels.Slot("SLOT-001", now.plusSeconds(3600), now.plusSeconds(5400), svc == null ? "CONSULT" : svc, Map.of("source", "generic")),
-                    new AppointmentModels.Slot("SLOT-002", now.plusSeconds(7200), now.plusSeconds(9000), svc == null ? "CONSULT" : svc, Map.of("source", "generic"))
+            Instant now = deterministicBaseTime(svc);
+            String locationId = request == null ? null : request.locationId();
+
+            List<AppointmentModels.Slot> generated = List.of(
+                    new AppointmentModels.Slot("SLOT-001", now.plusSeconds(3600), now.plusSeconds(5400), svc == null ? "CONSULT" : svc,
+                            metadata("source", "generic", "locationId", locationId)),
+                    new AppointmentModels.Slot("SLOT-002", now.plusSeconds(7200), now.plusSeconds(9000), svc == null ? "CONSULT" : svc,
+                            metadata("source", "generic", "locationId", locationId)),
+                    new AppointmentModels.Slot("SLOT-003", now.plusSeconds(10_800), now.plusSeconds(12_600), svc == null ? "CONSULT" : svc,
+                            metadata("source", "generic", "locationId", locationId))
             );
+
+            Instant from = request == null ? null : request.from();
+            Instant to = request == null ? null : request.to();
+
+            List<AppointmentModels.Slot> slots = generated.stream()
+                    .filter(s -> inRange(s.startAt(), from, to))
+                    .sorted(Comparator.comparing(AppointmentModels.Slot::startAt))
+                    .toList();
             return AppointmentModels.AppointmentOutcome.ok(slots);
         }
 
@@ -139,7 +188,10 @@ public class AppointmentClients {
                     "Врач (демо)",
                     "301",
                     "CONFIRMED",
-                    metadata("source", "generic", "slotId", request == null ? null : request.slotId())
+                    mergeMetadata(
+                            metadata("source", "generic", "slotId", request == null ? null : request.slotId()),
+                            metadata("branchId", resolveBranchId(request == null ? null : request.context()), "requestedService", request == null ? null : request.serviceCode())
+                    )
             );
             return AppointmentModels.AppointmentOutcome.ok(a);
         }
@@ -158,34 +210,87 @@ public class AppointmentClients {
             String segment = (request != null && request.context() != null && request.context().get("segment") != null)
                     ? String.valueOf(request.context().get("segment"))
                     : "DEFAULT";
+            String branchId = resolveBranchId(request == null ? null : request.context());
 
             List<AppointmentModels.QueueStep> steps = List.of(
-                    new AppointmentModels.QueueStep("REG", "ZONE-REG", null, "Регистрация клиента", Map.of("order", 1)),
-                    new AppointmentModels.QueueStep("APPT", "ZONE-APPT", null, "Приём по записи", Map.of("order", 2, "appointmentId", apptId))
+                    new AppointmentModels.QueueStep("REG", "ZONE-REG", null, "Регистрация клиента", metadataEntries(entry("order", 1), entry("branchId", branchId))),
+                    new AppointmentModels.QueueStep("APPT", "ZONE-APPT", null, "Приём по записи", metadataEntries(entry("order", 2), entry("appointmentId", apptId)))
             );
 
             AppointmentModels.QueuePlan plan = new AppointmentModels.QueuePlan(
                     apptId == null ? "APPT-UNKNOWN" : apptId,
                     segment,
                     steps,
-                    Map.of("source", "generic")
+                    metadata("source", "generic", "branchId", branchId)
             );
             return AppointmentModels.AppointmentOutcome.ok(plan);
         }
 
-        private static AppointmentModels.Appointment demoAppointment(String key) {
+        private static AppointmentModels.Appointment demoAppointment(String key, String serviceCode, String branchId) {
             Instant now = deterministicBaseTime(key);
             String apptId = "APPT-" + safeHash(key);
             return new AppointmentModels.Appointment(
                     apptId,
                     now.plusSeconds(1800),
                     now.plusSeconds(3600),
-                    "CONSULT",
+                    serviceCode,
                     "Врач (демо)",
                     "301",
                     "CONFIRMED",
-                    metadata("source", "generic", "clientKey", key)
+                    mergeMetadata(
+                            metadata("source", "generic", "clientKey", key),
+                            metadata("branchId", branchId, "timeline", "nearest")
+                    )
             );
+        }
+
+        private static AppointmentModels.Appointment appointmentWithOffset(String key,
+                                                                           String serviceCode,
+                                                                           String branchId,
+                                                                           long fromOffsetSeconds,
+                                                                           long toOffsetSeconds,
+                                                                           String idSuffix,
+                                                                           String room) {
+            Instant base = deterministicBaseTime(key);
+            return new AppointmentModels.Appointment(
+                    idSuffix + "-" + safeHash(key),
+                    base.plusSeconds(fromOffsetSeconds),
+                    base.plusSeconds(toOffsetSeconds),
+                    serviceCode,
+                    "Врач (демо)",
+                    room,
+                    "CONFIRMED",
+                    metadata("source", "generic", "branchId", branchId)
+            );
+        }
+
+        private static String resolveServiceCode(Map<String, Object> context, String fallback) {
+            if (context != null && context.get("serviceCode") != null) {
+                String value = String.valueOf(context.get("serviceCode"));
+                if (!value.isBlank()) {
+                    return value;
+                }
+            }
+            return fallback;
+        }
+
+        private static String resolveBranchId(Map<String, Object> context) {
+            if (context != null && context.get("branchId") != null) {
+                String value = String.valueOf(context.get("branchId"));
+                if (!value.isBlank()) {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        private static boolean inRange(Instant value, Instant from, Instant to) {
+            if (value == null) {
+                return false;
+            }
+            boolean fromOk = from == null || !value.isBefore(from);
+            boolean toOk = to == null || !value.isAfter(to);
+            return fromOk && toOk;
         }
 
         private static Instant deterministicBaseTime(String key) {
@@ -203,6 +308,39 @@ public class AppointmentClients {
                 meta.put(key2, value2);
             }
             return meta;
+        }
+
+        private static Map<String, Object> mergeMetadata(Map<String, Object> left, Map<String, Object> right) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            if (left != null) {
+                out.putAll(left);
+            }
+            if (right != null) {
+                out.putAll(right);
+            }
+            return out;
+        }
+
+        @SafeVarargs
+        private static Map<String, Object> metadataEntries(Map.Entry<String, Object>... entries) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            if (entries == null) {
+                return out;
+            }
+            for (Map.Entry<String, Object> e : entries) {
+                if (e == null || e.getKey() == null || e.getKey().isBlank() || e.getValue() == null) {
+                    continue;
+                }
+                if (e.getValue() instanceof String str && str.isBlank()) {
+                    continue;
+                }
+                out.put(e.getKey(), e.getValue());
+            }
+            return out;
+        }
+
+        private static Map.Entry<String, Object> entry(String key, Object value) {
+            return new java.util.AbstractMap.SimpleEntry<>(key, value);
         }
 
         private static String firstKey(List<AppointmentModels.BookingKey> keys) {

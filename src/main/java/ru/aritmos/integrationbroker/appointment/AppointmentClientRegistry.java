@@ -24,6 +24,7 @@ public class AppointmentClientRegistry {
         map.put(RuntimeConfigStore.AppointmentProfile.PRODOCTOROV_LIKE, clients.prodoctorovLike());
         map.put(RuntimeConfigStore.AppointmentProfile.YCLIENTS_LIKE, clients.yclientsLike());
         map.put(RuntimeConfigStore.AppointmentProfile.NAPOPRAVKU_LIKE, clients.napopravkuLike());
+        map.put(RuntimeConfigStore.AppointmentProfile.CUSTOM_CONNECTOR, clients.customConnector());
         map.put(RuntimeConfigStore.AppointmentProfile.GENERIC, clients.generic());
         this.byProfile = Map.copyOf(map);
     }
