@@ -252,13 +252,15 @@ public class InboundController {
         long kcErr = keycloakProxyEnrichmentService.errors();
 
         long vmConflicts409 = visitManagerConflictMetrics.conflicts409();
+        Map<String, Map<String, Long>> restConnectorLatencyHistogram = restOutboxService.connectorLatencyHistogram();
 
         return new IntegrationMetrics(inProgress, completed, failed,
                 dlqPending, dlqReplayed, dlqDead,
                 msgPending, msgSent, msgDead,
                 restPending, restSent, restDead,
                 kcHits, kcMiss, kcErr,
-                vmConflicts409);
+                vmConflicts409,
+                restConnectorLatencyHistogram);
     }
 
     /**
@@ -321,7 +323,9 @@ public class InboundController {
             @Schema(description = "KeycloakProxy enrichment: ошибки")
             long keycloakProxyErrors,
             @Schema(description = "VisitManager: количество конфликтов HTTP 409")
-            long visitManagerConflicts409
+            long visitManagerConflicts409,
+            @Schema(description = "Гистограмма латентности outbound по connectorId (lt100ms/lt300ms/lt1000ms/gte1000ms)")
+            Map<String, Map<String, Long>> restConnectorLatencyHistogram
     ) {
     }
 }

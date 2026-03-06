@@ -7,6 +7,7 @@ export interface SessionState {
   userName: string;
   role: UserRole;
   accessToken?: string;
+  expiresAt?: number;
 }
 
 export interface NavItem {

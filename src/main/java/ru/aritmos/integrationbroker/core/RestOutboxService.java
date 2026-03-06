@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 
 /**
@@ -52,6 +53,7 @@ public class RestOutboxService {
     private final OAuth2ClientCredentialsService oauth2Service;
     private final OutboundDryRunState outboundDryRunState;
     private final ConcurrentHashMap<String, CircuitState> connectorCircuits = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LatencyHistogram> connectorLatency = new ConcurrentHashMap<>();
     @Value("${integrationbroker.outbound.dry-run:false}")
     protected boolean outboundDryRun;
 
@@ -598,26 +600,58 @@ public RestOutboundSender.Result sendOnce(RestRecord record,
 
         int threshold = cb.failureThreshold() == null ? 3 : Math.max(1, cb.failureThreshold());
         int openSec = cb.openTimeoutSec() == null ? 30 : Math.max(1, cb.openTimeoutSec());
+        int halfOpenMaxProbes = cb.halfOpenMaxProbes() == null ? 1 : Math.max(1, cb.halfOpenMaxProbes());
 
         CircuitState state = connectorCircuits.computeIfAbsent(connectorId, k -> new CircuitState());
         Instant now = Instant.now();
+        boolean probeCall = false;
+
         synchronized (state) {
             if (state.openUntil != null && now.isBefore(state.openUntil)) {
                 return RestOutboundSender.Result.fail("CIRCUIT_OPEN", "Circuit breaker open for connector " + connectorId, 503);
             }
+
+            if (state.openUntil != null && !now.isBefore(state.openUntil)) {
+                if (!state.halfOpen) {
+                    state.halfOpen = true;
+                    state.remainingHalfOpenProbes = halfOpenMaxProbes;
+                }
+                if (state.remainingHalfOpenProbes <= 0) {
+                    state.openUntil = Instant.now().plusSeconds(openSec);
+                    return RestOutboundSender.Result.fail("CIRCUIT_OPEN", "Circuit breaker open for connector " + connectorId, 503);
+                }
+                state.remainingHalfOpenProbes--;
+                probeCall = true;
+            }
         }
 
+        long startedAtNs = System.nanoTime();
         RestOutboundSender.Result result = senderCall.get();
+        long elapsedMs = Math.max(0L, (System.nanoTime() - startedAtNs) / 1_000_000L);
+        connectorLatency.computeIfAbsent(connectorId, k -> new LatencyHistogram()).record(elapsedMs);
 
         synchronized (state) {
             if (result.success()) {
                 state.failureCount = 0;
                 state.openUntil = null;
+                state.halfOpen = false;
+                state.remainingHalfOpenProbes = 0;
                 return result;
             }
+
+            if (probeCall) {
+                state.failureCount = 0;
+                state.halfOpen = false;
+                state.remainingHalfOpenProbes = 0;
+                state.openUntil = Instant.now().plusSeconds(openSec);
+                return result;
+            }
+
             state.failureCount++;
             if (state.failureCount >= threshold) {
                 state.failureCount = 0;
+                state.halfOpen = false;
+                state.remainingHalfOpenProbes = 0;
                 state.openUntil = Instant.now().plusSeconds(openSec);
             }
         }
@@ -628,6 +662,51 @@ public RestOutboundSender.Result sendOnce(RestRecord record,
     private static final class CircuitState {
         private int failureCount;
         private Instant openUntil;
+        private boolean halfOpen;
+        private int remainingHalfOpenProbes;
+    }
+
+    private static final class LatencyHistogram {
+        private final LongAdder lt100ms = new LongAdder();
+        private final LongAdder lt300ms = new LongAdder();
+        private final LongAdder lt1000ms = new LongAdder();
+        private final LongAdder gte1000ms = new LongAdder();
+
+        private void record(long latencyMs) {
+            if (latencyMs < 100) {
+                lt100ms.increment();
+                return;
+            }
+            if (latencyMs < 300) {
+                lt300ms.increment();
+                return;
+            }
+            if (latencyMs < 1000) {
+                lt1000ms.increment();
+                return;
+            }
+            gte1000ms.increment();
+        }
+
+        private Map<String, Long> snapshot() {
+            return Map.of(
+                    "lt100ms", lt100ms.sum(),
+                    "lt300ms", lt300ms.sum(),
+                    "lt1000ms", lt1000ms.sum(),
+                    "gte1000ms", gte1000ms.sum()
+            );
+        }
+    }
+
+    public Map<String, Map<String, Long>> connectorLatencyHistogram() {
+        if (connectorLatency.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Map<String, Long>> out = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, LatencyHistogram> e : connectorLatency.entrySet()) {
+            out.put(e.getKey(), e.getValue().snapshot());
+        }
+        return Map.copyOf(out);
     }
 
     private RestRecord map(ResultSet rs) throws Exception {

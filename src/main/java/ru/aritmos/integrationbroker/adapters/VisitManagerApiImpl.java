@@ -710,6 +710,12 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (httpStatus == 409 || "HTTP_409".equals(errorCode)) {
             return "VM_CONFLICT";
         }
+        if (httpStatus == 401 || "HTTP_401".equals(errorCode)) {
+            return "VM_UNAUTHORIZED";
+        }
+        if (httpStatus == 207 || "HTTP_207".equals(errorCode)) {
+            return "VM_PARTIAL_SUCCESS";
+        }
         if (httpStatus >= 500 || "HTTP_500".equals(errorCode)) {
             return "VM_INTERNAL_ERROR";
         }

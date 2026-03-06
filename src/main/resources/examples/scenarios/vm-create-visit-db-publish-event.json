@@ -1,0 +1,44 @@
+{
+  "scenario": "vm-create-visit-db-publish-event",
+  "description": "End-to-end пример: createVisit в VisitManager и publishEvent в DataBus",
+  "inbound": {
+    "kind": "EVENT",
+    "type": "crm.customer.arrived",
+    "messageId": "msg-e2e-001",
+    "correlationId": "corr-e2e-001",
+    "branchId": "BR-001",
+    "sourceMeta": {
+      "source": "crm",
+      "channel": "webhook"
+    },
+    "payload": {
+      "entryPointId": "EP-1",
+      "serviceIds": ["svc-1", "svc-2"],
+      "customer": {
+        "externalId": "crm-123"
+      }
+    }
+  },
+  "flow": {
+    "visitManager": {
+      "operation": "createVisit",
+      "args": {
+        "branchId": "BR-001",
+        "entryPointId": "EP-1",
+        "serviceIds": ["svc-1", "svc-2"],
+        "printTicket": true
+      }
+    },
+    "dataBus": {
+      "operation": "publishEvent",
+      "args": {
+        "type": "visit.created",
+        "destination": "crm,display",
+        "payload": {
+          "visitId": "${visitManager.body.id}",
+          "ticket": "${visitManager.body.ticket}"
+        }
+      }
+    }
+  }
+}

@@ -39,6 +39,33 @@ class VisitManagerApiImplTest {
         assertEquals(1L, metrics.conflicts409());
     }
 
+
+    @Test
+    void toResult_shouldMapVmUnauthorizedDomainCode() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        client.nextResult = VisitManagerClient.CallResult.error("HTTP_401", "VisitManager вернул статус 401");
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        Map<String, Object> result = api.getBranchState("default", "dep-1", Map.of(), "m1", "c1", "i1");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) result.get("error");
+        assertEquals("VM_UNAUTHORIZED", error.get("domainCode"));
+    }
+
+    @Test
+    void toResult_shouldMapVmPartialSuccessDomainCode() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        client.nextResult = VisitManagerClient.CallResult.error("HTTP_207", "VisitManager вернул статус 207");
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        Map<String, Object> result = api.callNextVisit("default", "dep-1", "sp-1", true, Map.of(), "m1", "c1", "i1");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) result.get("error");
+        assertEquals("VM_PARTIAL_SUCCESS", error.get("domainCode"));
+    }
+
     @Test
     void toResult_shouldMapVmNotFoundDomainCode() {
         StubVisitManagerClient client = new StubVisitManagerClient();
@@ -205,6 +232,36 @@ class VisitManagerApiImplTest {
         org.junit.jupiter.api.Assertions.assertTrue(client.lastPath.startsWith("/servicepoint/branches/dep%2F%201/exit?"));
         org.junit.jupiter.api.Assertions.assertTrue(client.lastPath.contains("reason=late%20shift"));
         org.junit.jupiter.api.Assertions.assertTrue(client.lastPath.contains("isForced=true"));
+    }
+
+
+    @Test
+    void enterServicePointModeWithSid_shouldAttachSidCookie() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.enterServicePointModeWithSid("default", "dep-1", Map.of("mode", "WORK"), "SID-1", "corr-1");
+
+        assertEquals("enterServicePointModeRest", client.lastCall);
+        assertEquals("sid=SID-1", client.lastHeaders.get("Cookie"));
+    }
+
+    @Test
+    void exitServicePointModeWithSid_shouldMergeSidWithExistingCookie() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerApiImpl api = new VisitManagerApiImpl(client);
+
+        api.exitServicePointModeWithSidAndHeaders(
+                "default",
+                "dep-1",
+                Map.of("isForced", true),
+                "SID-2",
+                Map.of("Cookie", "theme=dark"),
+                "corr-2"
+        );
+
+        assertEquals("exitServicePointModeRest", client.lastCall);
+        assertEquals("theme=dark; sid=SID-2", client.lastHeaders.get("Cookie"));
     }
 
     @Test

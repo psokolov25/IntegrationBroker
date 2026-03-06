@@ -213,6 +213,12 @@ public class OutboxDispatcher {
         if (delay > max) {
             delay = max;
         }
-        return Instant.now().plus(delay, ChronoUnit.SECONDS);
+
+        // Лёгкий jitter (до 20%), чтобы разгрузить синхронные волны повторов.
+        long jitterBound = Math.max(1L, delay / 5L);
+        long jitter = java.util.concurrent.ThreadLocalRandom.current().nextLong(jitterBound + 1L);
+        long effectiveDelay = Math.min((long) max, delay + jitter);
+
+        return Instant.now().plus(effectiveDelay, ChronoUnit.SECONDS);
     }
 }

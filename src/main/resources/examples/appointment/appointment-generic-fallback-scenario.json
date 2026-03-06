@@ -1,0 +1,27 @@
+{
+  "scenario": "appointment-generic-fallback",
+  "description": "Fallback-сценарий: при ошибке custom профиля используется generic appointment profile",
+  "input": {
+    "patient": {
+      "snils": "112-233-445 95"
+    },
+    "branchId": "BR-002",
+    "serviceCode": "THERAPIST"
+  },
+  "steps": [
+    {
+      "operation": "appointment.getAvailableSlots",
+      "profile": "CUSTOM",
+      "onError": "fallback_to_generic"
+    },
+    {
+      "operation": "appointment.getAvailableSlots",
+      "profile": "GENERIC",
+      "expected": "SUCCESS"
+    }
+  ],
+  "expected": {
+    "result": "SUCCESS",
+    "sourceProfile": "GENERIC"
+  }
+}

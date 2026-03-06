@@ -41,6 +41,8 @@ const dictionaries = {
     soon: 'скоро',
     refresh: 'Обновить',
     loading: 'Загрузка...',
+    sessionExpiresSoon: 'Сессия скоро истечёт',
+    sessionExpiredAutoLogout: 'Сессия истекла, выполнен автоматический выход',
     loginTitle: 'Вход через Keycloak (OIDC PKCE)',
     loginDescription:
       'По кнопке ниже запускается реальный OIDC PKCE flow через Keycloak. Для локальной отладки доступны demo-входы по ролям.',
@@ -170,6 +172,8 @@ const dictionaries = {
     soon: 'soon',
     refresh: 'Refresh',
     loading: 'Loading...',
+    sessionExpiresSoon: 'Session will expire soon',
+    sessionExpiredAutoLogout: 'Session expired, automatic logout applied',
     loginTitle: 'Login with Keycloak (OIDC PKCE)',
     loginDescription:
       'Use the button below to start a real OIDC PKCE flow with Keycloak. Demo role-based login is available for local development.',

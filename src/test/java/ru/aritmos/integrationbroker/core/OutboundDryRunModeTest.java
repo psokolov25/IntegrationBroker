@@ -94,7 +94,7 @@ class OutboundDryRunModeTest {
                 null, null, null, null, null,
                 null, null, null, null, null
         );
-        RuntimeConfigStore.CircuitBreakerPolicy cb = new RuntimeConfigStore.CircuitBreakerPolicy(true, 2, 60);
+        RuntimeConfigStore.CircuitBreakerPolicy cb = new RuntimeConfigStore.CircuitBreakerPolicy(true, 2, 60, 1);
         RuntimeConfigStore.RuntimeConfig runtime = new RuntimeConfigStore.RuntimeConfig(
                 "test",
                 List.of(),

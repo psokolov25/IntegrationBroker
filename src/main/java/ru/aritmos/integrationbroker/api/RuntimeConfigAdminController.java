@@ -40,7 +40,64 @@ public class RuntimeConfigAdminController {
     @ApiResponse(responseCode = "200", description = "Конфигурация возвращена", content = @Content(schema = @Schema(implementation = RuntimeConfigResponse.class)))
     public RuntimeConfigResponse getCurrent() {
         RuntimeConfigStore.RuntimeConfig cfg = runtimeConfigStore.getEffective();
-        return new RuntimeConfigResponse(cfg, runtimeConfigStore.isRemoteEnabled());
+        return new RuntimeConfigResponse(sanitizeForAdmin(cfg), runtimeConfigStore.isRemoteEnabled());
+    }
+
+
+    private static RuntimeConfigStore.RuntimeConfig sanitizeForAdmin(RuntimeConfigStore.RuntimeConfig cfg) {
+        if (cfg == null || cfg.restConnectors() == null || cfg.restConnectors().isEmpty()) {
+            return cfg;
+        }
+        java.util.Map<String, RuntimeConfigStore.RestConnectorConfig> sanitizedConnectors = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, RuntimeConfigStore.RestConnectorConfig> e : cfg.restConnectors().entrySet()) {
+            RuntimeConfigStore.RestConnectorConfig connector = e.getValue();
+            if (connector == null) {
+                sanitizedConnectors.put(e.getKey(), null);
+                continue;
+            }
+            RuntimeConfigStore.RestConnectorAuth auth = connector.auth();
+            RuntimeConfigStore.RestConnectorAuth sanitizedAuth = auth == null ? null : new RuntimeConfigStore.RestConnectorAuth(
+                    auth.type(),
+                    auth.headerName(),
+                    mask(auth.apiKey()),
+                    mask(auth.bearerToken()),
+                    auth.basicUsername(),
+                    mask(auth.basicPassword()),
+                    auth.oauth2TokenUrl(),
+                    auth.oauth2ClientId(),
+                    mask(auth.oauth2ClientSecret()),
+                    auth.oauth2Scope(),
+                    auth.oauth2Audience()
+            );
+            sanitizedConnectors.put(e.getKey(), new RuntimeConfigStore.RestConnectorConfig(
+                    connector.baseUrl(),
+                    sanitizedAuth,
+                    connector.retryPolicy(),
+                    connector.circuitBreaker()
+            ));
+        }
+        return new RuntimeConfigStore.RuntimeConfig(
+                cfg.revision(),
+                cfg.flows(),
+                cfg.idempotency(),
+                cfg.inboundDlq(),
+                cfg.keycloakProxy(),
+                cfg.messagingOutbox(),
+                cfg.restOutbox(),
+                java.util.Map.copyOf(sanitizedConnectors),
+                cfg.crm(),
+                cfg.medical(),
+                cfg.appointment(),
+                cfg.identity(),
+                cfg.visionLabsAnalytics(),
+                cfg.branchResolution(),
+                cfg.visitManager(),
+                cfg.dataBus()
+        );
+    }
+
+    private static String mask(String value) {
+        return value == null || value.isBlank() ? value : "***";
     }
 
     @Post(uri = "/dry-run")
