@@ -233,6 +233,61 @@ features/flow-emulate/
 
 Оркестрация остается в границах IB: вызовы VisitManager/DataBus делаются из Groovy, а бизнес-правила клиента живут в скриптах и YAML flow.
 
+### 2.11. GUI-кастомизация адаптеров, коннекторов и внешних REST API (обязательно)
+
+В дополнение к дизайнеру endpoint, UI должен покрывать полный low-code цикл интеграции внешней системы:
+
+1. **External System Registry**
+   - реестр подключаемых систем (`systemId`, окружение, владелец, критичность);
+   - связь с конкретным адаптером (`crm/medical/appointment/...`) и `restConnectorId`;
+   - виджет состояния: health, последняя ошибка, latency, retry-rate.
+
+2. **Connector Config Studio**
+   - настройка transport-параметров: `baseUrl`, auth profile, TLS/mTLS, timeout, retry, circuit-breaker;
+   - политика заголовков по умолчанию (`X-Correlation-Id`, `X-Request-Id`, `Idempotency-Key`);
+   - безопасное редактирование секретов через masked fields + audit trail.
+
+3. **Adapter Mapping Designer**
+   - визуальный mapping внутренних моделей в vendor DTO (request mapper);
+   - визуальный mapping vendor response/error в канонические outcome-модели (response/error mapper);
+   - проверка обязательных полей и совместимости типов до публикации.
+
+4. **REST Contract + Runtime Validation**
+   - live-валидация path/query/header/body шаблонов и JSON schema;
+   - dry-run на тестовых payload с показом финального HTTP запроса;
+   - версионирование конфигурации (draft/published/rollback) и diff между ревизиями.
+
+5. **Operations & Support UX**
+   - trace-view одного вызова: template -> outbound request -> inbound response -> mapped outcome;
+   - фильтрация по correlationId/requestId/vendorTraceId;
+   - one-click export инцидента (sanitized JSON) для разбора с внешним вендором.
+
+### 2.12. Минимальные UX-сценарии и guardrails для GUI-кастомизации
+
+1. **Wizard “Подключить внешнюю систему”**
+   - шаги: registry -> connector -> operations -> validation -> publish;
+   - на каждом шаге отображать обязательные поля и блокирующие ошибки;
+   - для production-контуров требовать подтверждение publish с reason/comment.
+
+2. **Конструктор маппинга с контролем качества**
+   - подсветка несопоставленных обязательных полей;
+   - проверка совместимости типов (string/number/date/object/array);
+   - preview итогового outbound payload и normalized outcome.
+
+3. **Безопасность и секреты в UI**
+   - секретные поля только masked + write-only;
+   - история изменений без раскрытия секретов;
+   - запрет хранения токенов/паролей в requestTemplate/headersTemplate.
+
+4. **Проверка операционной готовности перед publish**
+   - checklist: health-check connector, dry-run 3 сценариев, наличие correlation headers;
+   - контроль лимитов (timeout/payload/retry) согласно профилю среды;
+   - авто-блокировка публикации при конфликте route/path.
+
+5. **Lifecycle и поддержка**
+   - сравнение версий (diff): контракт, маппинги, Groovy-логика;
+   - кнопка rollback на предыдущую `PUBLISHED` ревизию;
+   - быстрый экспорт incident-пакета для L2/L3 и внешнего вендора.
 
 ## 3. Backend API для IDE/эмуляции
 
