@@ -130,3 +130,18 @@
 98. `DONE` Tests: контрактные тесты examples JSON (schema-smoke).
 99. `DONE` Tests: добавить regression suite для sanitizer на headers/body snippets.
 100. `DONE` Release notes: подготовить пакет 03 summary и checklist внедрения.
+
+## 7) Пакет 04 (стартовый backlog по шаблонам решений и переносимости конфигурации)
+
+101. `TODO` Спроектировать доменную модель Integration Branch Template: composition из runtime YAML-конфигурации, flow YAML и Groovy-скриптов с метаданными решения/подгруппы заказчиков.
+102. `TODO` Поддержать экспорт шаблона ветки в архив `*.ibt` (single-branch template) с манифестом версии формата и контрольными суммами файлов.
+103. `TODO` Поддержать экспорт набора шаблонов в архив `*.ibts` (template set) для библиотеки решений по нескольким подгруппам заказчиков.
+104. `TODO` Реализовать импорт `*.ibt`/`*.ibts` через dry-run валидацию: совместимость версии, целостность архива, schema-check YAML и compile-check Groovy.
+105. `TODO` Добавить стратегию merge при импорте: `replace`, `merge`, `keep-local` + отчёт конфликтов и список затронутых артефактов.
+106. `TODO` Зафиксировать человеко-читаемый формат артефактов: настройки только в `*.yml` (с комментариями), Groovy — отдельными `*.groovy` файлами без встраивания в JSON.
+107. `TODO` Добавить git-friendly правила структуры шаблона: детерминированная сортировка полей/файлов, стабильные имена директорий и нормализованный line-ending.
+108. `TODO` Добавить CLI/Admin endpoint для упаковки/распаковки шаблонов (import/export) с обязательными `correlationId/requestId` в аудит-логе операций.
+109. `TODO` Реализовать механизм параметризации «базовое решение -> кастомизация заказчика» (overrides layer), чтобы шаблоны подгруппы можно было финально донастраивать per-customer.
+110. `TODO` Добавить версионирование шаблонов (`templateVersion`, `compatibilityRange`) и semver-policy для безопасного обновления решений в эксплуатации.
+111. `TODO` Добавить unit/integration тесты round-trip (`export -> import`) для `ibt/ibts`, включая кейсы с комментариями YAML и проверкой неизменности Groovy-скриптов.
+112. `TODO` Подготовить документацию и примеры репозитория шаблонов для Git: recommended layout, naming conventions, release process и rollback strategy.
