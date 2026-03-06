@@ -156,11 +156,61 @@ if (nearest.success() && nearest.result() != null) {
   - `responseMapping` (где взять `appointmentId`, `startAt`, `status`, `slots[]` и т.д.).
 - Перед сохранением обязательно запускать dry-run и проверять diff.
 
+### Функционал GUI для кастомизации адаптеров и коннекторов (расширенный минимум)
+Чтобы интеграторы могли работать без Java-разработки на ранних этапах проекта, в Workbench рекомендуется явно поддержать следующий GUI-функционал:
+
+1) **Каталог внешних систем**
+   - визуальное создание карточки интеграции: `systemId`, `displayName`, `owner`, `criticality`, `environment`;
+   - привязка к `connectorId` и профилю адаптера (`appointment/crm/medical/...`);
+   - быстрый переход к health, журналу ошибок и последним outbound-вызовам.
+
+2) **Конструктор REST-коннектора**
+   - редактирование `baseUrl`, auth-mode, timeout/retry/circuit-breaker;
+   - переключение mock/real endpoint для поэтапного запуска;
+   - шаблоны заголовков по умолчанию (`X-Correlation-Id`, `X-Request-Id`, `Idempotency-Key`).
+
+3) **Конструктор операций адаптера**
+   - визуальная сборка операций уровня домена (`getNearestAppointment`, `bookSlot`, `cancelAppointment`);
+   - map полей `AppointmentModels.*Request` -> vendor payload;
+   - map vendor response/errors -> `AppointmentOutcome` с подсветкой обязательных полей.
+
+4) **Валидация и безопасная публикация**
+   - pre-save проверки: обязательные поля, конфликт route/path, наличие `responseMapping`;
+   - dry-run с эталонными payload и сравнением diff до/после изменения;
+   - публикация через версионность (`draft` -> `published`) с возможностью rollback на предыдущую ревизию.
+
+5) **Наблюдаемость и поддержка эксплуатации**
+   - timeline вызова: request-template -> финальный request -> response -> mapped outcome;
+   - поиск по `correlationId/requestId/vendorTraceId`;
+   - экспорт проблемного кейса в JSON для передачи в команду внешней системы.
+
 ### Ограничения
 - Это **переходный** путь для ускорения внедрения; production-критичные интеграции лучше переводить в типизированный Java-клиент.
 - Шаблоны не должны содержать секреты: секреты только в `restConnectors.<id>.auth`.
 - Любые визуальные шаблоны должны быть идемпотентны и трассируемы через `correlationId`.
 
+### GUI user-journey (рекомендованный сценарий работы интегратора)
+1) Создать внешнюю систему в каталоге и привязать `connectorId`.
+2) Настроить auth/retry/timeout в коннекторе и пройти health-check.
+3) Собрать операции адаптера через визуальные шаблоны request/response.
+4) Выполнить dry-run на 3 кейсах: happy-path, empty result, retryable error.
+5) Проверить trace и корректность маппинга в `AppointmentOutcome`.
+6) Опубликовать версию в `PUBLISHED`, зафиксировать `revision` и комментарий.
+7) Наблюдать первые вызовы в timeline, при отклонениях сделать rollback.
+
+### Матрица обязательного GUI-функционала (DoD для кастомного коннектора)
+| Блок GUI | Обязательные элементы | Критерий готовности |
+|---|---|---|
+| Каталог внешней системы | `systemId`, owner, environment, criticality | карточка сохранена и связана с `connectorId` |
+| Коннектор | auth-policy, timeout, retry, circuit-breaker, default headers | dry-run/health-check успешен |
+| Операции | requestTemplate, responseMapping, errorMapping | каждая операция валидируется без ошибок схемы |
+| Публикация | draft/published, diff, rollback | есть опубликованная версия и откат до предыдущей |
+| Эксплуатация | trace-view, correlation search, incident export | инцидент экспортируется в sanitized JSON |
+
+### RBAC для GUI-кастомизации (минимум)
+- `IB_ADMIN`: полный доступ (create/update/publish/rollback).
+- `IB_OPERATOR`: редактирование и dry-run без publish/rollback.
+- `IB_AUDITOR`/read-only: просмотр конфигураций, ревизий и trace без изменений.
 
 ## Реализация кастомных REST API для внешних служб клиентов
 Ниже — практический blueprint для команд внедрения, когда нужно интегрировать нестандартный REST API внешней службы (страховая, CRM, колл-центр, кастомный booking backend) без немедленной разработки полноценного Java-клиента.
