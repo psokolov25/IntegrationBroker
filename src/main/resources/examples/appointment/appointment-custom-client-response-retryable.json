@@ -1,0 +1,7 @@
+{
+  "status": 429,
+  "error": "RATE_LIMIT",
+  "message": "Too many requests",
+  "retryAfterSeconds": 15,
+  "traceId": "vendor-trace-429"
+}
