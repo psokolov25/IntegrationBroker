@@ -24,7 +24,8 @@ export class KeycloakSessionManager {
       authenticated: true,
       userName: `demo.${role}`,
       role,
-      accessToken: `mock-token-${randomString()}`
+      accessToken: `mock-token-${randomString()}`,
+      expiresAt: Date.now() + 60 * 60 * 1000
     };
     return this.session;
   }
@@ -59,6 +60,52 @@ export class KeycloakSessionManager {
       code_challenge: codeChallenge
     });
     return `${base}?${query.toString()}`;
+  }
+
+
+  private static decodeJwtPayload(token: string): Record<string, unknown> | null {
+    const parts = token.split('.');
+    if (parts.length < 2) {
+      return null;
+    }
+    try {
+      const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+      return JSON.parse(atob(padded)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private static resolvePreferredUserName(tokenPayload: { preferred_username?: string }, accessToken: string): string {
+    const jwtPayload = KeycloakSessionManager.decodeJwtPayload(accessToken) ?? {};
+    const direct = tokenPayload.preferred_username?.trim();
+    if (direct) {
+      return direct;
+    }
+    const candidates = [
+      jwtPayload.preferred_username,
+      jwtPayload.username,
+      jwtPayload.upn,
+      jwtPayload.email,
+      jwtPayload.name,
+      jwtPayload.sub
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+    return 'keycloak.user';
+  }
+
+  private static resolveExpiresAt(accessToken: string): number | undefined {
+    const jwtPayload = KeycloakSessionManager.decodeJwtPayload(accessToken) ?? {};
+    const exp = jwtPayload.exp;
+    if (typeof exp === 'number' && Number.isFinite(exp) && exp > 0) {
+      return exp * 1000;
+    }
+    return undefined;
   }
 
   async handleOidcCallback(config: KeycloakAuthConfig): Promise<SessionState | null> {
@@ -102,9 +149,10 @@ export class KeycloakSessionManager {
 
     this.session = {
       authenticated: true,
-      userName: tokenPayload.preferred_username ?? 'keycloak.user',
+      userName: KeycloakSessionManager.resolvePreferredUserName(tokenPayload, accessToken),
       role: 'operator',
-      accessToken
+      accessToken,
+      expiresAt: KeycloakSessionManager.resolveExpiresAt(accessToken)
     };
 
     currentUrl.searchParams.delete('code');

@@ -31,6 +31,7 @@ export function App() {
   const [locale, setLocaleState] = useState<LocaleCode>(detectInitialLocale());
   const [version, setVersion] = useState(0);
   const [authLoading, setAuthLoading] = useState(true);
+  const [sessionExpiryNotice, setSessionExpiryNotice] = useState<string | null>(null);
   const session = auth.getSession();
 
   useEffect(() => {
@@ -76,6 +77,33 @@ export function App() {
     setVersion((v) => v + 1);
   };
 
+
+  useEffect(() => {
+    if (!session?.authenticated || !session.expiresAt) {
+      setSessionExpiryNotice(null);
+      return;
+    }
+
+    const updateNotice = () => {
+      const remainingMs = session.expiresAt! - Date.now();
+      const remainingMinutes = Math.max(0, Math.ceil(remainingMs / 60000));
+      if (remainingMs <= 0) {
+        setSessionExpiryNotice(t('sessionExpiredAutoLogout'));
+        handleLogout();
+        return;
+      }
+      if (remainingMs <= 5 * 60 * 1000) {
+        setSessionExpiryNotice(`${t('sessionExpiresSoon')} (${remainingMinutes})`);
+      } else {
+        setSessionExpiryNotice(null);
+      }
+    };
+
+    updateNotice();
+    const timer = window.setInterval(updateNotice, 15000);
+    return () => window.clearInterval(timer);
+  }, [session?.authenticated, session?.expiresAt, t]);
+
   const handleKeycloakLogin = async () => {
     const url = await auth.buildPkceLoginUrl(keycloakConfig);
     window.location.assign(url);
@@ -91,6 +119,7 @@ export function App() {
         <LoginPage onLogin={handleLogin} onKeycloakLogin={handleKeycloakLogin} />
       ) : (
         <Layout key={version} session={session} onLogout={handleLogout} role={role} onRoleChange={handleRoleChange}>
+          {sessionExpiryNotice ? <p role="alert">{sessionExpiryNotice}</p> : null}
           <Routes>
             <Route path="/" element={<Navigate to="/monitoring" replace />} />
             <Route path="/monitoring" element={<MonitoringPage />} />

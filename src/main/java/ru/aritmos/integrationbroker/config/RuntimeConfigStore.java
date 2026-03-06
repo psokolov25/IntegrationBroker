@@ -785,7 +785,8 @@ public class RuntimeConfigStore {
     public record CircuitBreakerPolicy(
             boolean enabled,
             Integer failureThreshold,
-            Integer openTimeoutSec
+            Integer openTimeoutSec,
+            Integer halfOpenMaxProbes
     ) {
     }
 
