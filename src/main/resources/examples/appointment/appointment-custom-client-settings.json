@@ -1,0 +1,75 @@
+{
+  "appointment": {
+    "enabled": true,
+    "profile": "CUSTOM_CONNECTOR",
+    "connectorId": "appointmentGeneric",
+    "settings": {
+      "customClient": {
+        "enabled": true,
+        "version": "1.0",
+        "schema": "appointment-custom-client.v1",
+        "operations": {
+          "getAppointments": {
+            "method": "POST",
+            "path": "/api/v2/appointments/search",
+            "queryTemplate": {
+              "branch": "${context.branchId}",
+              "limit": "${context.limit:50}"
+            },
+            "headersTemplate": {
+              "X-Correlation-Id": "${meta.correlationId}",
+              "X-Request-Id": "${meta.requestId}",
+              "Idempotency-Key": "${meta.idempotencyKey}"
+            },
+            "requestTemplate": {
+              "client": {
+                "id": "${keys.clientId}",
+                "phone": "${keys.phone}"
+              },
+              "period": {
+                "from": "${from}",
+                "to": "${to}"
+              },
+              "service": "${context.serviceCode}"
+            },
+            "responseMapping": {
+              "itemsPath": "$.data.items[*]",
+              "appointmentId": "$.id",
+              "startAt": "$.start",
+              "endAt": "$.end",
+              "serviceCode": "$.service.code",
+              "specialistName": "$.doctor.name",
+              "room": "$.cabinet",
+              "status": "$.status"
+            },
+            "errorMapping": {
+              "404": "OK_EMPTY",
+              "409": "ERROR_CONFLICT",
+              "429": "ERROR_RETRYABLE",
+              "500": "ERROR_RETRYABLE"
+            }
+          },
+          "bookSlot": {
+            "method": "POST",
+            "path": "/api/v2/appointments/book",
+            "headersTemplate": {
+              "X-Correlation-Id": "${meta.correlationId}",
+              "X-Request-Id": "${meta.requestId}",
+              "Idempotency-Key": "${meta.idempotencyKey}"
+            },
+            "requestTemplate": {
+              "slot": "${slotId}",
+              "service": "${serviceCode}",
+              "client": "${keys.clientId}"
+            },
+            "errorMapping": {
+              "409": "ERROR_CONFLICT",
+              "429": "ERROR_RETRYABLE",
+              "500": "ERROR_RETRYABLE"
+            }
+          }
+        }
+      }
+    }
+  }
+}

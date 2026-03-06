@@ -413,6 +413,12 @@ return [
 - [ ] Нет секретов в шаблонах/логах/примерных payload.
 - [ ] Добавлены/обновлены примеры в `src/main/resources/examples/appointment/*`.
 
+Примеры для стартовой реализации лежат в:
+- `src/main/resources/examples/appointment/appointment-custom-client-settings.json`
+- `src/main/resources/examples/appointment/appointment-custom-client-response-happy.json`
+- `src/main/resources/examples/appointment/appointment-custom-client-response-empty.json`
+- `src/main/resources/examples/appointment/appointment-custom-client-response-retryable.json`
+
 ## Как добавить новую систему записи
 1) Добавить новый профиль в `RuntimeConfigStore.AppointmentProfile`.
 2) Реализовать `AppointmentClient` под этот профиль.

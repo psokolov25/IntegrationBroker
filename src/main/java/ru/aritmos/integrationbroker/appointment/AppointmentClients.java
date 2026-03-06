@@ -2,6 +2,8 @@ package ru.aritmos.integrationbroker.appointment;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Singleton;
+import ru.aritmos.integrationbroker.config.RuntimeConfigStore;
+import ru.aritmos.integrationbroker.core.OAuth2ClientCredentialsService;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -26,14 +28,26 @@ public class AppointmentClients {
     private final AppointmentClient customConnector;
     private final AppointmentClient generic;
 
-    public AppointmentClients(ObjectMapper objectMapper) {
+    public AppointmentClients(ObjectMapper objectMapper,
+                              RuntimeConfigStore configStore,
+                              OAuth2ClientCredentialsService oauth2Service) {
         // objectMapper оставлен на будущее (маппинг под реальные API), но сейчас не используется.
         this.emiasAppointment = new NotImplementedAppointmentClient("EMIAS_APPOINTMENT");
         this.medtochkaLike = new NotImplementedAppointmentClient("MEDTOCHKA_LIKE");
         this.prodoctorovLike = new NotImplementedAppointmentClient("PRODOCTOROV_LIKE");
         this.yclientsLike = new NotImplementedAppointmentClient("YCLIENTS_LIKE");
         this.napopravkuLike = new NotImplementedAppointmentClient("NAPOPRAVKU_LIKE");
-        this.customConnector = new NotImplementedAppointmentClient("CUSTOM_CONNECTOR");
+        this.customConnector = new AppointmentCustomConnectorClient(configStore::getEffective, objectMapper, oauth2Service);
+        this.generic = new GenericAppointmentClient();
+    }
+
+    AppointmentClients(ObjectMapper objectMapper, AppointmentClient customConnectorClient) {
+        this.emiasAppointment = new NotImplementedAppointmentClient("EMIAS_APPOINTMENT");
+        this.medtochkaLike = new NotImplementedAppointmentClient("MEDTOCHKA_LIKE");
+        this.prodoctorovLike = new NotImplementedAppointmentClient("PRODOCTOROV_LIKE");
+        this.yclientsLike = new NotImplementedAppointmentClient("YCLIENTS_LIKE");
+        this.napopravkuLike = new NotImplementedAppointmentClient("NAPOPRAVKU_LIKE");
+        this.customConnector = customConnectorClient;
         this.generic = new GenericAppointmentClient();
     }
 

@@ -1,0 +1,20 @@
+{
+  "traceId": "vendor-trace-001",
+  "data": {
+    "items": [
+      {
+        "id": "APT-1001",
+        "start": "2026-03-06T08:30:00Z",
+        "end": "2026-03-06T09:00:00Z",
+        "status": "CONFIRMED",
+        "cabinet": "301",
+        "service": {
+          "code": "CONSULT"
+        },
+        "doctor": {
+          "name": "Иванов И.И."
+        }
+      }
+    ]
+  }
+}
