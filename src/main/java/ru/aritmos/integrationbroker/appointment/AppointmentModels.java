@@ -212,5 +212,9 @@ public final class AppointmentModels {
         public static <T> AppointmentOutcome<T> error(String message) {
             return new AppointmentOutcome<>(false, "ERROR", message, null, Map.of());
         }
+
+        public static <T> AppointmentOutcome<T> error(String message, Map<String, Object> details) {
+            return new AppointmentOutcome<>(false, "ERROR", message, null, details == null ? Map.of() : Map.copyOf(details));
+        }
     }
 }
