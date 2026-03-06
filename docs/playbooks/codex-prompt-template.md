@@ -156,6 +156,7 @@
 ## Формат выполнения итерации
 - До 20 файлов за итерацию,
 - запуск тестов: `./mvnw -q -Dmaven.site.skip=true test`,
+- использовать только Maven tooling (`mvn`, `./mvnw`) для сборки/тестов/запуска; команды Gradle (`gradle`, `./gradlew`) для этого репозитория не применять,
 - в каждом отчёте явно фиксировать, какие новые typed-методы/посредники VisitManager добавлены в этой итерации (с приоритетом EntrypointController -> ServicePointController -> ManagementController),
 - отчёт в формате:
   - `== SUBTASK Sx COMPLETE: TESTS PASSED ==`

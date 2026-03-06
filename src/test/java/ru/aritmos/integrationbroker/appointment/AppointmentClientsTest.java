@@ -358,6 +358,55 @@ class AppointmentClientsTest {
         assertEquals("SLOT-100", out.result().attributes().get("slotId"));
     }
 
+
+    @Test
+    void customConnectorProfile_shouldMapVendorTraceIdIntoAttributes() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/appointments/search", ex -> writeJson(ex, 200,
+                "{\"traceId\":\"vendor-42\",\"data\":{\"items\":[{\"id\":\"APT-1\",\"start\":\"2026-03-06T08:30:00Z\",\"end\":\"2026-03-06T09:00:00Z\"}]}}"));
+        server.start();
+
+        try {
+            RuntimeConfigStore.RuntimeConfig cfg = customConfigWithCustomOp(
+                    "http://localhost:" + server.getAddress().getPort(),
+                    "getAppointments",
+                    Map.of("path", "/api/v1/appointments/search")
+            );
+            AppointmentClient custom = new AppointmentCustomConnectorClient(() -> cfg, new ObjectMapper(), null);
+
+            AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> out = custom.getAppointments(
+                    new AppointmentModels.GetAppointmentsRequest(List.of(), null, null, Map.of()),
+                    Map.of()
+            );
+
+            assertTrue(out.success());
+            assertEquals(1, out.result().size());
+            assertEquals("vendor-42", out.result().get(0).attributes().get("vendorTraceId"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void customConnectorProfile_shouldMarkTransportErrorsAsRetryable() throws Exception {
+        RuntimeConfigStore.RuntimeConfig cfg = customConfigWithCustomOp(
+                "http://localhost:1",
+                "getAppointments",
+                Map.of("path", "/api/v1/appointments/search", "queryTemplate", Map.of())
+        );
+        AppointmentClient custom = new AppointmentCustomConnectorClient(() -> cfg, new ObjectMapper(), null);
+
+        AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> out = custom.getAppointments(
+                new AppointmentModels.GetAppointmentsRequest(List.of(), null, null, Map.of()),
+                Map.of()
+        );
+
+        assertFalse(out.success());
+        assertEquals(Boolean.TRUE, out.details().get("retriable"));
+        assertEquals("ConnectException", out.details().get("errorClass"));
+    }
+
+
     private static RuntimeConfigStore.RuntimeConfig customConfig(String baseUrl) throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         RuntimeConfigStore.RuntimeConfig cfg = mapper.readValue(

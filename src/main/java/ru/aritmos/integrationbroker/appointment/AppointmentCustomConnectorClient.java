@@ -12,6 +12,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -246,7 +247,11 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             }
             return VendorCallResult.error("operation=" + operationName + ", status=" + status + ", outcome=" + mapped, details);
         } catch (Exception ex) {
-            return VendorCallResult.error("Ошибка вызова custom connector: " + safe(ex.getMessage()), Map.of("operation", operationName));
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("operation", operationName);
+            details.put("errorClass", ex.getClass().getSimpleName());
+            details.put("retriable", isRetryableTransportError(ex));
+            return VendorCallResult.error("Ошибка вызова custom connector: " + safe(ex.getMessage()), details);
         }
     }
 
@@ -255,6 +260,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             return List.of();
         }
         Map<String, Object> responseMapping = asMap(operation.get("responseMapping"));
+        String vendorTraceId = readByPath(body, asString(responseMapping.get("vendorTraceId"), "$.traceId"));
         String itemsPath = asString(responseMapping.get("itemsPath"), "$.data.items[*]");
         List<JsonNode> items = resolveItems(body, itemsPath);
         List<AppointmentModels.Appointment> out = new ArrayList<>();
@@ -266,8 +272,13 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             String doctor = readByPath(it, asString(responseMapping.get("specialistName"), "$.doctor.name"));
             String room = readByPath(it, asString(responseMapping.get("room"), "$.cabinet"));
             String status = readByPath(it, asString(responseMapping.get("status"), "$.status"));
+            Map<String, Object> attributes = new LinkedHashMap<>();
+            attributes.put("source", "customConnector");
+            if (!isBlank(vendorTraceId)) {
+                attributes.put("vendorTraceId", vendorTraceId);
+            }
             out.add(new AppointmentModels.Appointment(id, startAt, endAt, serviceCode, doctor, room, status,
-                    Map.of("source", "customConnector")));
+                    attributes));
         }
         return out;
     }
@@ -281,6 +292,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             return null;
         }
         Map<String, Object> responseMapping = asMap(operation.get("responseMapping"));
+        String vendorTraceId = readByPath(body, asString(responseMapping.get("vendorTraceId"), "$.traceId"));
         String id = readByPath(body, asString(responseMapping.get("appointmentId"), "$.id"));
         Instant startAt = parseInstant(readByPath(body, asString(responseMapping.get("startAt"), "$.start")));
         Instant endAt = parseInstant(readByPath(body, asString(responseMapping.get("endAt"), "$.end")));
@@ -291,7 +303,12 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         if (id == null && startAt == null && endAt == null && serviceCode == null && doctor == null && room == null && status == null) {
             return null;
         }
-        return new AppointmentModels.Appointment(id, startAt, endAt, serviceCode, doctor, room, status, Map.of("source", "customConnector"));
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("source", "customConnector");
+        if (!isBlank(vendorTraceId)) {
+            attributes.put("vendorTraceId", vendorTraceId);
+        }
+        return new AppointmentModels.Appointment(id, startAt, endAt, serviceCode, doctor, room, status, attributes);
     }
 
     private List<AppointmentModels.Slot> mapSlots(JsonNode body, Map<String, Object> operation) {
@@ -299,6 +316,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             return List.of();
         }
         Map<String, Object> responseMapping = asMap(operation.get("responseMapping"));
+        String vendorTraceId = readByPath(body, asString(responseMapping.get("vendorTraceId"), "$.traceId"));
         String itemsPath = asString(responseMapping.get("itemsPath"), "$.data.items[*]");
         List<JsonNode> items = resolveItems(body, itemsPath);
         List<AppointmentModels.Slot> out = new ArrayList<>();
@@ -307,9 +325,21 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
             Instant startAt = parseInstant(readByPath(it, asString(responseMapping.get("startAt"), "$.start")));
             Instant endAt = parseInstant(readByPath(it, asString(responseMapping.get("endAt"), "$.end")));
             String serviceCode = readByPath(it, asString(responseMapping.get("serviceCode"), "$.service.code"));
-            out.add(new AppointmentModels.Slot(slotId, startAt, endAt, serviceCode, Map.of("source", "customConnector")));
+            Map<String, Object> attributes = new LinkedHashMap<>();
+            attributes.put("source", "customConnector");
+            if (!isBlank(vendorTraceId)) {
+                attributes.put("vendorTraceId", vendorTraceId);
+            }
+            out.add(new AppointmentModels.Slot(slotId, startAt, endAt, serviceCode, attributes));
         }
         return out;
+    }
+
+    private static boolean isRetryableTransportError(Exception ex) {
+        return ex instanceof HttpTimeoutException
+                || ex instanceof java.net.ConnectException
+                || ex instanceof java.net.SocketTimeoutException
+                || ex instanceof java.net.SocketException;
     }
 
     private void applyAuth(Map<String, String> headers, RuntimeConfigStore.RestConnectorAuth auth) {
