@@ -450,6 +450,8 @@ return [
 | `meta.idempotencyKey` | `Idempotency-Key` | high | Идемпотентность безопасных повторов (`book/cancel`) |
 
 - Если `Idempotency-Key` не указан в `headersTemplate`, клиент добавит его автоматически из `meta.idempotencyKey` (если значение передано в flow meta).
+- Для HTTP 429/5xx и сетевых ошибок (connect/timeout/socket) custom-клиент возвращает `details.retriable=true`, чтобы flow мог безопасно запускать retry policy.
+- Если в ответе вендора есть `traceId` (или путь `responseMapping.vendorTraceId`), значение прокидывается в `attributes.vendorTraceId` у `Appointment`/`Slot`.
 
 ## Runbook: rollback и восстановление
 Если custom REST интеграция деградировала:
