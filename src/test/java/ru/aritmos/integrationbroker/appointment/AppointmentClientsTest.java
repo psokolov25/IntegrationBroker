@@ -24,8 +24,10 @@ class AppointmentClientsTest {
     void customConnectorProfile_shouldCallVendorAndMapAppointments() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         AtomicReference<String> corr = new AtomicReference<>();
+        AtomicReference<String> reqHeader = new AtomicReference<>();
         server.createContext("/api/v1/appointments/search", ex -> {
             corr.set(ex.getRequestHeaders().getFirst("X-Correlation-Id"));
+            reqHeader.set(ex.getRequestHeaders().getFirst("X-Request-Id"));
             writeJson(ex, 200, "{\"data\":{\"items\":[{\"id\":\"APT-1\",\"start\":\"2026-03-06T08:30:00Z\",\"end\":\"2026-03-06T09:00:00Z\",\"status\":\"CONFIRMED\",\"cabinet\":\"301\",\"service\":{\"code\":\"CONSULT\"},\"doctor\":{\"name\":\"Иванов\"}}]}}");
         });
         server.start();
@@ -52,6 +54,7 @@ class AppointmentClientsTest {
             assertEquals("APT-1", out.result().get(0).appointmentId());
             assertEquals("CONSULT", out.result().get(0).serviceCode());
             assertEquals("corr-123", corr.get());
+            assertEquals("req-123", reqHeader.get());
         } finally {
             server.stop(0);
         }
@@ -78,11 +81,70 @@ class AppointmentClientsTest {
 
             assertFalse(out.success());
             assertTrue(out.message().contains("ERROR_RETRYABLE"));
+            assertEquals(429, out.details().get("httpStatus"));
+            assertEquals(Boolean.TRUE, out.details().get("retriable"));
         } finally {
             server.stop(0);
         }
     }
 
+
+    @Test
+    void customConnectorProfile_shouldAutoAttachIdempotencyHeader() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        AtomicReference<String> idem = new AtomicReference<>();
+        server.createContext("/api/v1/appointments/search", ex -> {
+            idem.set(ex.getRequestHeaders().getFirst("Idempotency-Key"));
+            writeJson(ex, 200, "{\"data\":{\"items\":[]}}");
+        });
+        server.start();
+
+        try {
+            RuntimeConfigStore.RuntimeConfig cfg = customConfigWithCustomOp(
+                    "http://localhost:" + server.getAddress().getPort(),
+                    "getAppointments",
+                    Map.of("path", "/api/v1/appointments/search", "headersTemplate", Map.of(), "queryTemplate", Map.of())
+            );
+            AppointmentClient custom = new AppointmentCustomConnectorClient(() -> cfg, new ObjectMapper(), null);
+
+            AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> out = custom.getAppointments(
+                    new AppointmentModels.GetAppointmentsRequest(List.of(), null, null, Map.of()),
+                    Map.of("idempotencyKey", "idem-777")
+            );
+
+            assertTrue(out.success());
+            assertEquals("idem-777", idem.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void customConnectorProfile_shouldIncludeResponseSnippetForErrors() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/appointments/search", ex -> writeJson(ex, 500, "{\"error\":\"INTERNAL\",\"traceId\":\"abc-500\"}"));
+        server.start();
+
+        try {
+            RuntimeConfigStore.RuntimeConfig cfg = customConfigWithCustomOp(
+                    "http://localhost:" + server.getAddress().getPort(),
+                    "getAppointments",
+                    Map.of("path", "/api/v1/appointments/search", "queryTemplate", Map.of())
+            );
+            AppointmentClient custom = new AppointmentCustomConnectorClient(() -> cfg, new ObjectMapper(), null);
+
+            AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> out = custom.getAppointments(
+                    new AppointmentModels.GetAppointmentsRequest(List.of(), null, null, Map.of()),
+                    Map.of()
+            );
+
+            assertFalse(out.success());
+            assertEquals(500, out.details().get("httpStatus"));
+            assertEquals("ERROR_RETRYABLE", out.details().get("mappedOutcome"));
+        } finally {
+            server.stop(0);
+        }
+    }
     @Test
     void customConnectorProfile_shouldApplyDefaultTemplateValueInQuery() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);

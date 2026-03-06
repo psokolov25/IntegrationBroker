@@ -356,6 +356,149 @@ public class VisitManagerClient {
         }
     }
 
+
+
+
+    /**
+     * Вход сотрудника в режим обслуживания.
+     */
+    public CallResult enterServicePointModeRest(String branchId,
+                                                Map<String, Object> query,
+                                                Map<String, String> extraHeaders,
+                                                String sourceMessageId,
+                                                String correlationId,
+                                                String idempotencyKey) {
+        String path = withQueryString("/servicepoint/branches/" + urlEncode(branchId) + "/enter", query);
+        return callRestEndpoint("POST", path, null,
+                withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Выход сотрудника из режима обслуживания.
+     */
+    public CallResult exitServicePointModeRest(String branchId,
+                                               Map<String, Object> query,
+                                               Map<String, String> extraHeaders,
+                                               String sourceMessageId,
+                                               String correlationId,
+                                               String idempotencyKey) {
+        String path = withQueryString("/servicepoint/branches/" + urlEncode(branchId) + "/exit", query);
+        return callRestEndpoint("POST", path, null,
+                withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Вызвать следующего посетителя на сервисной точке.
+     */
+    public CallResult callNextVisitRest(String branchId,
+                                        String servicePointId,
+                                        boolean autoCallEnabled,
+                                        Map<String, String> extraHeaders,
+                                        String sourceMessageId,
+                                        String correlationId,
+                                        String idempotencyKey) {
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/servicePoints/" + urlEncode(servicePointId)
+                + "/call?isAutoCallEnabled=" + autoCallEnabled;
+        return callRestEndpoint("POST", path, null,
+                withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Отложить текущий визит на сервисной точке.
+     */
+    public CallResult postponeCurrentVisitRest(String branchId,
+                                               String servicePointId,
+                                               Map<String, String> extraHeaders,
+                                               String sourceMessageId,
+                                               String correlationId,
+                                               String idempotencyKey) {
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/servicePoints/" + urlEncode(servicePointId)
+                + "/postpone";
+        return callRestEndpoint("PUT", path, null,
+                withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Включить авто-вызов на сервисной точке.
+     */
+    public CallResult startAutoCallRest(String branchId,
+                                        String servicePointId,
+                                        Map<String, String> extraHeaders,
+                                        String sourceMessageId,
+                                        String correlationId,
+                                        String idempotencyKey) {
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/service-points/" + urlEncode(servicePointId)
+                + "/auto-call/start";
+        return callRestEndpoint("PUT", path, null,
+                withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Отключить авто-вызов на сервисной точке.
+     */
+    public CallResult cancelAutoCallRest(String branchId,
+                                         String servicePointId,
+                                         Map<String, String> extraHeaders,
+                                         String sourceMessageId,
+                                         String correlationId,
+                                         String idempotencyKey) {
+        String path = "/servicepoint/branches/" + urlEncode(branchId)
+                + "/service-points/" + urlEncode(servicePointId)
+                + "/auto-call/cancel";
+        return callRestEndpoint("PUT", path, null,
+                withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Получить состояние отделения из ManagementController.
+     */
+    public CallResult getBranchStateRest(String branchId,
+                                         Map<String, String> extraHeaders,
+                                         String sourceMessageId,
+                                         String correlationId,
+                                         String idempotencyKey) {
+        String path = "/managementinformation/branches/" + urlEncode(branchId);
+        return callRestEndpoint("GET", path, null, withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Получить карту отделений из ManagementController.
+     */
+    public CallResult getBranchesStateRest(String userName,
+                                           Map<String, String> extraHeaders,
+                                           String sourceMessageId,
+                                           String correlationId,
+                                           String idempotencyKey) {
+        String path = "/managementinformation/branches";
+        if (userName != null && !userName.isBlank()) {
+            path = path + "?userName=" + urlEncode(userName);
+        }
+        return callRestEndpoint("GET", path, null, withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
+    /**
+     * Получить сокращённую карту отделений из ManagementController.
+     */
+    public CallResult getBranchesTinyRest(Map<String, String> extraHeaders,
+                                          String sourceMessageId,
+                                          String correlationId,
+                                          String idempotencyKey) {
+        return callRestEndpoint("GET", "/managementinformation/branches/tiny", null,
+                withCorrelationHeaders(SensitiveDataSanitizer.sanitizeHeaders(extraHeaders), correlationId, sourceMessageId),
+                sourceMessageId, correlationId, idempotencyKey);
+    }
+
     /**
      * Универсальный REST-вызов endpoint VisitManager через connector-конфигурацию.
      *
@@ -578,6 +721,35 @@ public class VisitManagerClient {
         out.putIfAbsent("X-Correlation-Id", ctx.correlationId());
         out.putIfAbsent("X-Request-Id", ctx.requestId());
         return out;
+    }
+
+
+    private static String withQueryString(String basePath, Map<String, Object> query) {
+        if (basePath == null) {
+            return "/";
+        }
+        if (query == null || query.isEmpty()) {
+            return basePath;
+        }
+        java.util.StringJoiner sj = new java.util.StringJoiner("&");
+        for (Map.Entry<String, Object> e : query.entrySet()) {
+            if (e.getKey() == null || e.getKey().isBlank()) {
+                continue;
+            }
+            Object value = e.getValue();
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof String sv && sv.isBlank()) {
+                continue;
+            }
+            sj.add(urlEncode(e.getKey()) + "=" + urlEncode(String.valueOf(value)));
+        }
+        String q = sj.toString();
+        if (q.isBlank()) {
+            return basePath;
+        }
+        return basePath + "?" + q;
     }
 
     private static String urlEncode(String s) {

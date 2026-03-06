@@ -52,7 +52,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         VendorCallResult call = execute("getAppointments", request == null ? null : request.context(), request == null ? null : request.keys(),
                 request == null ? null : request.from(), request == null ? null : request.to(), meta, null);
         if (!call.success()) {
-            return AppointmentModels.AppointmentOutcome.error(call.message());
+            return AppointmentModels.AppointmentOutcome.error(call.message(), call.details());
         }
         List<AppointmentModels.Appointment> mapped = mapAppointments(call.body(), call.operation());
         return new AppointmentModels.AppointmentOutcome<>(true, "OK", "", mapped, call.details());
@@ -68,7 +68,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         );
         AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> list = getAppointments(req, meta);
         if (!list.success()) {
-            return AppointmentModels.AppointmentOutcome.error(list.message());
+            return AppointmentModels.AppointmentOutcome.error(list.message(), list.details());
         }
         AppointmentModels.Appointment nearest = list.result().stream()
                 .filter(a -> a != null && a.startAt() != null)
@@ -88,7 +88,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         VendorCallResult call = execute("getAvailableSlots", request == null ? null : request.context(), List.of(),
                 request == null ? null : request.from(), request == null ? null : request.to(), meta, extra);
         if (!call.success()) {
-            return AppointmentModels.AppointmentOutcome.error(call.message());
+            return AppointmentModels.AppointmentOutcome.error(call.message(), call.details());
         }
         List<AppointmentModels.Slot> mapped = mapSlots(call.body(), call.operation());
         return new AppointmentModels.AppointmentOutcome<>(true, "OK", "", mapped, call.details());
@@ -104,7 +104,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         VendorCallResult call = execute("bookSlot", request == null ? null : request.context(), request == null ? null : request.keys(),
                 null, null, meta, extra);
         if (!call.success()) {
-            return AppointmentModels.AppointmentOutcome.error(call.message());
+            return AppointmentModels.AppointmentOutcome.error(call.message(), call.details());
         }
         AppointmentModels.Appointment first = mapSingleAppointment(call.body(), call.operation());
         return new AppointmentModels.AppointmentOutcome<>(true, "OK", "", first, call.details());
@@ -120,7 +120,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         VendorCallResult call = execute("cancelAppointment", request == null ? null : request.context(), List.of(),
                 null, null, meta, extra);
         if (!call.success()) {
-            return AppointmentModels.AppointmentOutcome.error(call.message());
+            return AppointmentModels.AppointmentOutcome.error(call.message(), call.details());
         }
         return new AppointmentModels.AppointmentOutcome<>(true, "OK", "", Boolean.TRUE, call.details());
     }
@@ -134,7 +134,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         VendorCallResult call = execute("buildQueuePlan", request == null ? null : request.context(), request == null ? null : request.keys(),
                 null, null, meta, extra);
         if (!call.success()) {
-            return AppointmentModels.AppointmentOutcome.error(call.message());
+            return AppointmentModels.AppointmentOutcome.error(call.message(), call.details());
         }
         // Для baseline: если внешняя операция возвращает запись — строим минимальный план.
         AppointmentModels.Appointment appt = mapSingleAppointment(call.body(), call.operation());
@@ -198,6 +198,10 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         Map<String, String> headers = materializeStringMap(operation.get("headersTemplate"), vars);
         headers.putIfAbsent("X-Correlation-Id", cc.correlationId());
         headers.putIfAbsent("X-Request-Id", cc.requestId());
+        String idempotency = metaString(meta, "idempotencyKey");
+        if (!isBlank(idempotency)) {
+            headers.putIfAbsent("Idempotency-Key", idempotency);
+        }
         headers.putIfAbsent("Accept", "application/json");
         applyAuth(headers, connector.auth());
 
@@ -217,7 +221,7 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
                 rb.method(method, HttpRequest.BodyPublishers.noBody());
             } else {
                 rb.method(method, HttpRequest.BodyPublishers.ofString(bodyJson));
-                if (!headers.containsKey("Content-Type")) {
+                if (!hasHeaderIgnoreCase(headers, "Content-Type")) {
                     rb.header("Content-Type", "application/json");
                 }
             }
@@ -232,8 +236,15 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
                 return VendorCallResult.ok(parseJson("{\"data\":{\"items\":[]}}"), operation, Map.of("httpStatus", status, "operation", operationName, "mappedOutcome", mapped));
             }
             boolean retriable = "ERROR_RETRYABLE".equals(mapped);
-            return VendorCallResult.error("operation=" + operationName + ", status=" + status + ", outcome=" + mapped,
-                    Map.of("httpStatus", status, "mappedOutcome", mapped, "retriable", retriable));
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("httpStatus", status);
+            details.put("mappedOutcome", mapped);
+            details.put("retriable", retriable);
+            String responseSnippet = safeBodySnippet(resp.body());
+            if (!isBlank(responseSnippet)) {
+                details.put("responseSnippet", responseSnippet);
+            }
+            return VendorCallResult.error("operation=" + operationName + ", status=" + status + ", outcome=" + mapped, details);
         } catch (Exception ex) {
             return VendorCallResult.error("Ошибка вызова custom connector: " + safe(ex.getMessage()), Map.of("operation", operationName));
         }
@@ -527,6 +538,29 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         out.put(prefix, value == null ? "" : value);
     }
 
+    private static boolean hasHeaderIgnoreCase(Map<String, String> headers, String name) {
+        if (headers == null || headers.isEmpty() || isBlank(name)) {
+            return false;
+        }
+        for (String key : headers.keySet()) {
+            if (key != null && key.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String safeBodySnippet(String body) {
+        String cleaned = safe(body);
+        if (isBlank(cleaned)) {
+            return null;
+        }
+        if (cleaned.length() <= 240) {
+            return cleaned;
+        }
+        return cleaned.substring(0, 240) + "...";
+    }
+
     private static String mapHttpError(Map<String, Object> operation, int status) {
         Map<String, Object> mapping = asMap(operation.get("errorMapping"));
         return asString(mapping.get(String.valueOf(status)), "ERROR");
@@ -570,12 +604,17 @@ final class AppointmentCustomConnectorClient implements AppointmentClient {
         return v == null ? null : String.valueOf(v);
     }
 
-    @SuppressWarnings("unchecked")
     private static Map<String, Object> asMap(Object o) {
-        if (o instanceof Map<?, ?> m) {
-            return (Map<String, Object>) m;
+        if (!(o instanceof Map<?, ?> m) || m.isEmpty()) {
+            return Map.of();
         }
-        return Map.of();
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : m.entrySet()) {
+            if (e.getKey() != null) {
+                out.put(String.valueOf(e.getKey()), e.getValue());
+            }
+        }
+        return out;
     }
 
     private static String asString(Object value, String def) {

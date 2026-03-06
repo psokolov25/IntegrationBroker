@@ -165,10 +165,8 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(branchId)) {
             return invalidArgument("branchId");
         }
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "GET",
-                "/managementinformation/branches/" + urlEncodePathSegment(branchId),
-                null,
+        VisitManagerClient.CallResult r = client.getBranchStateRest(
+                branchId,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -184,14 +182,8 @@ public class VisitManagerApiImpl implements VisitManagerApi {
                                                 String sourceMessageId,
                                                 String correlationId,
                                                 String idempotencyKey) {
-        String path = "/managementinformation/branches";
-        if (userName != null && !userName.isBlank()) {
-            path = path + "?userName=" + urlEncodeQueryParam(userName);
-        }
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "GET",
-                path,
-                null,
+        VisitManagerClient.CallResult r = client.getBranchesStateRest(
+                userName,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -206,10 +198,7 @@ public class VisitManagerApiImpl implements VisitManagerApi {
                                                String sourceMessageId,
                                                String correlationId,
                                                String idempotencyKey) {
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "GET",
-                "/managementinformation/branches/tiny",
-                null,
+        VisitManagerClient.CallResult r = client.getBranchesTinyRest(
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -233,12 +222,10 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(servicePointId)) {
             return invalidArgument("servicePointId");
         }
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "POST",
-                "/servicepoint/branches/" + urlEncodePathSegment(branchId) + "/servicePoints/"
-                        + urlEncodePathSegment(servicePointId)
-                        + "/call?isAutoCallEnabled=" + autoCallEnabled,
-                null,
+        VisitManagerClient.CallResult r = client.callNextVisitRest(
+                branchId,
+                servicePointId,
+                autoCallEnabled,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -261,11 +248,9 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(servicePointId)) {
             return invalidArgument("servicePointId");
         }
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "PUT",
-                "/servicepoint/branches/" + urlEncodePathSegment(branchId) + "/servicePoints/"
-                        + urlEncodePathSegment(servicePointId) + "/postpone",
-                null,
+        VisitManagerClient.CallResult r = client.postponeCurrentVisitRest(
+                branchId,
+                servicePointId,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -286,11 +271,9 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(branchId)) {
             return invalidArgument("branchId");
         }
-        String path = withQuery("/servicepoint/branches/" + urlEncodePathSegment(branchId) + "/enter", query);
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "POST",
-                path,
-                null,
+        VisitManagerClient.CallResult r = client.enterServicePointModeRest(
+                branchId,
+                query,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -310,11 +293,9 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(branchId)) {
             return invalidArgument("branchId");
         }
-        String path = withQuery("/servicepoint/branches/" + urlEncodePathSegment(branchId) + "/exit", query);
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "POST",
-                path,
-                null,
+        VisitManagerClient.CallResult r = client.exitServicePointModeRest(
+                branchId,
+                query,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -337,11 +318,9 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(servicePointId)) {
             return invalidArgument("servicePointId");
         }
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "PUT",
-                "/servicepoint/branches/" + urlEncodePathSegment(branchId) + "/service-points/"
-                        + urlEncodePathSegment(servicePointId) + "/auto-call/start",
-                null,
+        VisitManagerClient.CallResult r = client.startAutoCallRest(
+                branchId,
+                servicePointId,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,
@@ -364,11 +343,9 @@ public class VisitManagerApiImpl implements VisitManagerApi {
         if (isBlank(servicePointId)) {
             return invalidArgument("servicePointId");
         }
-        VisitManagerClient.CallResult r = client.callRestEndpoint(
-                "PUT",
-                "/servicepoint/branches/" + urlEncodePathSegment(branchId) + "/service-points/"
-                        + urlEncodePathSegment(servicePointId) + "/auto-call/cancel",
-                null,
+        VisitManagerClient.CallResult r = client.cancelAutoCallRest(
+                branchId,
+                servicePointId,
                 normalizeHeaders(headers),
                 sourceMessageId,
                 correlationId,

@@ -447,6 +447,9 @@ return [
 | `context.serviceCode` | `service` | medium | Фильтр/тип приёма |
 | `meta.correlationId` | `X-Correlation-Id` | high | Трассировка межсервисных вызовов |
 | `meta.requestId` | `X-Request-Id` | high | Запросный идентификатор |
+| `meta.idempotencyKey` | `Idempotency-Key` | high | Идемпотентность безопасных повторов (`book/cancel`) |
+
+- Если `Idempotency-Key` не указан в `headersTemplate`, клиент добавит его автоматически из `meta.idempotencyKey` (если значение передано в flow meta).
 
 ## Runbook: rollback и восстановление
 Если custom REST интеграция деградировала:
@@ -465,6 +468,7 @@ return [
 
 Примеры для стартовой реализации лежат в:
 - `src/main/resources/examples/appointment/appointment-custom-client-settings.json`
+- `src/main/resources/examples/appointment/appointment-custom-client-request-happy.json`
 - `src/main/resources/examples/appointment/appointment-custom-client-response-happy.json`
 - `src/main/resources/examples/appointment/appointment-custom-client-response-empty.json`
 - `src/main/resources/examples/appointment/appointment-custom-client-response-retryable.json`

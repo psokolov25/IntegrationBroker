@@ -182,16 +182,17 @@ class QualityAndGroovyTest {
 
     @Test
     void shouldRejectInvalidProvidedIdempotencyKeyPattern() {
+        InboundEnvelope base = buildEnvelope("msg-invalid-idem");
         InboundEnvelope env = new InboundEnvelope(
-                InboundEnvelope.Kind.EVENT,
-                "demo.event",
-                objectMapper.valueToTree(Map.of("hello", "world")),
+                base.kind(),
+                base.type(),
+                base.payload(),
                 Map.of("Idempotency-Key", "bad-key-format"),
-                "msg-invalid-idem",
-                "corr-invalid-idem",
-                "BR-001",
-                "operator-1",
-                Map.of("channel", "REST")
+                base.messageId(),
+                base.correlationId(),
+                base.branchId(),
+                base.userId(),
+                base.sourceMeta()
         );
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> processingService.process(env));

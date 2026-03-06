@@ -161,6 +161,7 @@ class VisitManagerApiImplTest {
 
         api.callNextVisit("default", "b/ 1", "sp/ 2", true, Map.of(), "m1", "c1", "i1");
 
+        assertEquals("callNextVisitRest", client.lastCall);
         assertEquals("POST", client.lastMethod);
         assertEquals("/servicepoint/branches/b%2F%201/servicePoints/sp%2F%202/call?isAutoCallEnabled=true", client.lastPath);
     }
@@ -172,6 +173,7 @@ class VisitManagerApiImplTest {
 
         api.postponeCurrentVisit("default", "b/ 1", "sp/ 2", Map.of(), "m1", "c1", "i1");
 
+        assertEquals("postponeCurrentVisitRest", client.lastCall);
         assertEquals("PUT", client.lastMethod);
         assertEquals("/servicepoint/branches/b%2F%201/servicePoints/sp%2F%202/postpone", client.lastPath);
     }
@@ -184,6 +186,7 @@ class VisitManagerApiImplTest {
 
         api.enterServicePointMode("default", "dep/ 1", Map.of("mode", "operator on", "line", 2), Map.of(), "m1", "c1", "i1");
 
+        assertEquals("enterServicePointModeRest", client.lastCall);
         assertEquals("POST", client.lastMethod);
         org.junit.jupiter.api.Assertions.assertTrue(client.lastPath.startsWith("/servicepoint/branches/dep%2F%201/enter?"));
         org.junit.jupiter.api.Assertions.assertTrue(client.lastPath.contains("mode=operator%20on"));
@@ -197,6 +200,7 @@ class VisitManagerApiImplTest {
 
         api.exitServicePointMode("default", "dep/ 1", Map.of("isForced", true, "reason", "late shift"), Map.of(), "m1", "c1", "i1");
 
+        assertEquals("exitServicePointModeRest", client.lastCall);
         assertEquals("POST", client.lastMethod);
         org.junit.jupiter.api.Assertions.assertTrue(client.lastPath.startsWith("/servicepoint/branches/dep%2F%201/exit?"));
         org.junit.jupiter.api.Assertions.assertTrue(client.lastPath.contains("reason=late%20shift"));
@@ -209,10 +213,12 @@ class VisitManagerApiImplTest {
         VisitManagerApiImpl api = new VisitManagerApiImpl(client);
 
         api.startAutoCall("default", "b/ 1", "sp/ 2", Map.of(), "m1", "c1", "i1");
+        assertEquals("startAutoCallRest", client.lastCall);
         assertEquals("PUT", client.lastMethod);
         assertEquals("/servicepoint/branches/b%2F%201/service-points/sp%2F%202/auto-call/start", client.lastPath);
 
         api.cancelAutoCall("default", "b/ 1", "sp/ 2", Map.of(), "m1", "c1", "i1");
+        assertEquals("cancelAutoCallRest", client.lastCall);
         assertEquals("PUT", client.lastMethod);
         assertEquals("/servicepoint/branches/b%2F%201/service-points/sp%2F%202/auto-call/cancel", client.lastPath);
     }
@@ -522,7 +528,7 @@ class VisitManagerApiImplTest {
         VisitManagerApiImpl api = new VisitManagerApiImpl(client);
 
         api.getBranchesTiny("default", "corr-1");
-        assertEquals("callRestEndpoint", client.lastCall);
+        assertEquals("getBranchesTinyRest", client.lastCall);
         assertEquals("GET", client.lastMethod);
 
         api.createVirtualVisit("br-1", "sp-1", java.util.List.of("svc"), "corr-2");
@@ -997,6 +1003,173 @@ class VisitManagerApiImplTest {
                                                     String idempotencyKey) {
             this.lastCall = "updateVisitParametersRest";
             this.lastParameters = parameters;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult enterServicePointModeRest(String branchId,
+                                                    Map<String, Object> query,
+                                                    Map<String, String> extraHeaders,
+                                                    String sourceMessageId,
+                                                    String correlationId,
+                                                    String idempotencyKey) {
+            this.lastCall = "enterServicePointModeRest";
+            this.lastMethod = "POST";
+            String path = "/servicepoint/branches/" + java.net.URLEncoder.encode(branchId == null ? "" : branchId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20") + "/enter";
+            if (query != null && !query.isEmpty()) {
+                java.util.StringJoiner sj = new java.util.StringJoiner("&");
+                for (Map.Entry<String, Object> e : query.entrySet()) {
+                    if (e.getKey() != null && !e.getKey().isBlank() && e.getValue() != null) {
+                        if (e.getValue() instanceof String sv && sv.isBlank()) {
+                            continue;
+                        }
+                        sj.add(java.net.URLEncoder.encode(e.getKey(), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20") + "="
+                                + java.net.URLEncoder.encode(String.valueOf(e.getValue()), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
+                    }
+                }
+                String q = sj.toString();
+                this.lastPath = q.isBlank() ? path : path + "?" + q;
+            } else {
+                this.lastPath = path;
+            }
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult exitServicePointModeRest(String branchId,
+                                                   Map<String, Object> query,
+                                                   Map<String, String> extraHeaders,
+                                                   String sourceMessageId,
+                                                   String correlationId,
+                                                   String idempotencyKey) {
+            this.lastCall = "exitServicePointModeRest";
+            this.lastMethod = "POST";
+            String path = "/servicepoint/branches/" + java.net.URLEncoder.encode(branchId == null ? "" : branchId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20") + "/exit";
+            if (query != null && !query.isEmpty()) {
+                java.util.StringJoiner sj = new java.util.StringJoiner("&");
+                for (Map.Entry<String, Object> e : query.entrySet()) {
+                    if (e.getKey() != null && !e.getKey().isBlank() && e.getValue() != null) {
+                        if (e.getValue() instanceof String sv && sv.isBlank()) {
+                            continue;
+                        }
+                        sj.add(java.net.URLEncoder.encode(e.getKey(), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20") + "="
+                                + java.net.URLEncoder.encode(String.valueOf(e.getValue()), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
+                    }
+                }
+                String q = sj.toString();
+                this.lastPath = q.isBlank() ? path : path + "?" + q;
+            } else {
+                this.lastPath = path;
+            }
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult callNextVisitRest(String branchId,
+                                            String servicePointId,
+                                            boolean autoCallEnabled,
+                                            Map<String, String> extraHeaders,
+                                            String sourceMessageId,
+                                            String correlationId,
+                                            String idempotencyKey) {
+            this.lastCall = "callNextVisitRest";
+            this.lastMethod = "POST";
+            this.lastPath = "/servicepoint/branches/" + java.net.URLEncoder.encode(branchId == null ? "" : branchId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/servicePoints/" + java.net.URLEncoder.encode(servicePointId == null ? "" : servicePointId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/call?isAutoCallEnabled=" + autoCallEnabled;
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult postponeCurrentVisitRest(String branchId,
+                                                   String servicePointId,
+                                                   Map<String, String> extraHeaders,
+                                                   String sourceMessageId,
+                                                   String correlationId,
+                                                   String idempotencyKey) {
+            this.lastCall = "postponeCurrentVisitRest";
+            this.lastMethod = "PUT";
+            this.lastPath = "/servicepoint/branches/" + java.net.URLEncoder.encode(branchId == null ? "" : branchId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/servicePoints/" + java.net.URLEncoder.encode(servicePointId == null ? "" : servicePointId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/postpone";
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult startAutoCallRest(String branchId,
+                                            String servicePointId,
+                                            Map<String, String> extraHeaders,
+                                            String sourceMessageId,
+                                            String correlationId,
+                                            String idempotencyKey) {
+            this.lastCall = "startAutoCallRest";
+            this.lastMethod = "PUT";
+            this.lastPath = "/servicepoint/branches/" + java.net.URLEncoder.encode(branchId == null ? "" : branchId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/service-points/" + java.net.URLEncoder.encode(servicePointId == null ? "" : servicePointId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/auto-call/start";
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult cancelAutoCallRest(String branchId,
+                                             String servicePointId,
+                                             Map<String, String> extraHeaders,
+                                             String sourceMessageId,
+                                             String correlationId,
+                                             String idempotencyKey) {
+            this.lastCall = "cancelAutoCallRest";
+            this.lastMethod = "PUT";
+            this.lastPath = "/servicepoint/branches/" + java.net.URLEncoder.encode(branchId == null ? "" : branchId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/service-points/" + java.net.URLEncoder.encode(servicePointId == null ? "" : servicePointId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                    + "/auto-call/cancel";
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult getBranchStateRest(String branchId,
+                                             Map<String, String> extraHeaders,
+                                             String sourceMessageId,
+                                             String correlationId,
+                                             String idempotencyKey) {
+            this.lastCall = "getBranchStateRest";
+            this.lastMethod = "GET";
+            this.lastPath = "/managementinformation/branches/" + java.net.URLEncoder.encode(branchId == null ? "" : branchId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult getBranchesStateRest(String userName,
+                                               Map<String, String> extraHeaders,
+                                               String sourceMessageId,
+                                               String correlationId,
+                                               String idempotencyKey) {
+            this.lastCall = "getBranchesStateRest";
+            this.lastMethod = "GET";
+            if (userName == null || userName.isBlank()) {
+                this.lastPath = "/managementinformation/branches";
+            } else {
+                this.lastPath = "/managementinformation/branches?userName=" + java.net.URLEncoder.encode(userName, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+            }
+            this.lastHeaders = extraHeaders;
+            return nextResult == null ? CallResult.direct(200, null) : nextResult;
+        }
+
+        @Override
+        public CallResult getBranchesTinyRest(Map<String, String> extraHeaders,
+                                              String sourceMessageId,
+                                              String correlationId,
+                                              String idempotencyKey) {
+            this.lastCall = "getBranchesTinyRest";
+            this.lastMethod = "GET";
+            this.lastPath = "/managementinformation/branches/tiny";
+            this.lastHeaders = extraHeaders;
             return nextResult == null ? CallResult.direct(200, null) : nextResult;
         }
 
