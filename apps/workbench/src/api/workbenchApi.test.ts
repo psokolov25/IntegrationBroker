@@ -69,7 +69,27 @@ describe('workbenchApi.replayDlqBatch', () => {
 
     const result = await workbenchApi.fetchIntegrationMetrics();
 
-    expect(result).toEqual({ restConnectorLatencyHistogram: {} });
+    expect(result).toEqual({ restConnectorLatencyHistogram: {}, adminOperations: undefined });
+  });
+
+
+  it('returns admin operations metrics from integration metrics API', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new globalThis.Response(
+          JSON.stringify({
+            restConnectorLatencyHistogram: { vm: { lt100ms: 1, lt300ms: 0, lt1000ms: 0, gte1000ms: 0 } },
+            adminOperations: { dlqReplayBatchRuns: 2 }
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+    );
+
+    const result = await workbenchApi.fetchIntegrationMetrics();
+
+    expect(result.adminOperations?.dlqReplayBatchRuns).toBe(2);
   });
 
   it('requests sanitized DLQ payload preview by id', async () => {

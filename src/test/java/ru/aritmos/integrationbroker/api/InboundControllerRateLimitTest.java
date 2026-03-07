@@ -3,6 +3,7 @@ package ru.aritmos.integrationbroker.api;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micronaut.http.HttpResponse;
 import org.junit.jupiter.api.Test;
+import ru.aritmos.integrationbroker.core.AdminOperationsMetrics;
 import ru.aritmos.integrationbroker.core.InboundProcessingService;
 import ru.aritmos.integrationbroker.model.InboundEnvelope;
 
@@ -29,6 +30,7 @@ class InboundControllerRateLimitTest {
                 null,
                 null,
                 null,
+                new AdminOperationsMetrics(),
                 new ObjectMapper(),
                 true,
                 1

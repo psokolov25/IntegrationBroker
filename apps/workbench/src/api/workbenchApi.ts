@@ -5,8 +5,25 @@ export interface MonitoringSnapshot {
   outboxPending: number;
 }
 
+export interface AdminOperationsSnapshot {
+  dlqReplayBatchRuns: number;
+  dlqReplayBatchSelected: number;
+  dlqReplayBatchSuccess: number;
+  dlqReplayBatchLocked: number;
+  dlqReplayBatchFailed: number;
+  dlqReplayBatchDead: number;
+  dlqMarkIgnoredBatchRuns: number;
+  dlqMarkIgnoredBatchUpdated: number;
+  restCancelBatchRuns: number;
+  restCancelBatchCancelled: number;
+  lastRequestedLimit: number;
+  lastAppliedLimit: number;
+  lastLimitClamped: boolean;
+}
+
 export interface IntegrationMetricsSnapshot {
   restConnectorLatencyHistogram: Record<string, Record<string, number>>;
+  adminOperations?: AdminOperationsSnapshot;
 }
 
 export interface DlqPreviewResponse {
@@ -152,7 +169,7 @@ export const workbenchApi = {
     try {
       return await jsonFetch<IntegrationMetricsSnapshot>('/admin/metrics/integration');
     } catch {
-      return { restConnectorLatencyHistogram: {} };
+      return { restConnectorLatencyHistogram: {}, adminOperations: undefined };
     }
   },
 

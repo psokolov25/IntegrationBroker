@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { workbenchApi, type MonitoringSnapshot, type OutboundDryRunState } from '../../api/workbenchApi';
+import { workbenchApi, type MonitoringSnapshot, type OutboundDryRunState, type AdminOperationsSnapshot } from '../../api/workbenchApi';
 import { useI18n } from '../../app/I18nContext';
 
 
@@ -14,6 +14,7 @@ export function MonitoringPage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [replayBatchMetrics, setReplayBatchMetrics] = useState<{ ok: number; locked: number; failed: number; dead: number; at?: string } | null>(null);
   const [latencyHistogram, setLatencyHistogram] = useState<Record<string, Record<string, number>>>({});
+  const [adminOps, setAdminOps] = useState<AdminOperationsSnapshot | null>(null);
   const { t } = useI18n();
 
   const load = useCallback(() => {
@@ -31,8 +32,14 @@ export function MonitoringPage() {
 
     workbenchApi
       .fetchIntegrationMetrics()
-      .then((metrics) => setLatencyHistogram(metrics.restConnectorLatencyHistogram ?? {}))
-      .catch(() => setLatencyHistogram({}));
+      .then((metrics) => {
+        setLatencyHistogram(metrics.restConnectorLatencyHistogram ?? {});
+        setAdminOps(metrics.adminOperations ?? null);
+      })
+      .catch(() => {
+        setLatencyHistogram({});
+        setAdminOps(null);
+      });
 
     const replayRaw = window.localStorage.getItem('ib.workbench.replay.last-batch');
     if (replayRaw) {
@@ -134,6 +141,18 @@ export function MonitoringPage() {
             </div>
           ))}
         </div>
+      )}
+
+      <h3>{t('monitoringAdminOpsTitle')}</h3>
+      {adminOps ? (
+        <p>
+          DLQ replay batch: runs={adminOps.dlqReplayBatchRuns}, selected={adminOps.dlqReplayBatchSelected}, ok={adminOps.dlqReplayBatchSuccess}, locked={adminOps.dlqReplayBatchLocked}, failed={adminOps.dlqReplayBatchFailed}, dead={adminOps.dlqReplayBatchDead}
+          {' | '}DLQ ignored: runs={adminOps.dlqMarkIgnoredBatchRuns}, updated={adminOps.dlqMarkIgnoredBatchUpdated}
+          {' | '}REST cancel-batch: runs={adminOps.restCancelBatchRuns}, cancelled={adminOps.restCancelBatchCancelled}
+          {' | '}limit last={adminOps.lastRequestedLimit}/{adminOps.lastAppliedLimit}{adminOps.lastLimitClamped ? ' (clamped)' : ''}
+        </p>
+      ) : (
+        <p>{t('monitoringAdminOpsEmpty')}</p>
       )}
 
       <h3>{t('monitoringReplayMetricsTitle')}</h3>
