@@ -5,6 +5,16 @@ export interface MonitoringSnapshot {
   outboxPending: number;
 }
 
+export interface IntegrationMetricsSnapshot {
+  restConnectorLatencyHistogram: Record<string, Record<string, number>>;
+}
+
+export interface DlqPreviewResponse {
+  id: number;
+  maxLen: number;
+  preview: string;
+}
+
 export interface IntegrationHealth {
   system: string;
   status: 'UP' | 'DEGRADED' | 'DOWN';
@@ -138,6 +148,14 @@ export const workbenchApi = {
     }
   },
 
+  async fetchIntegrationMetrics(): Promise<IntegrationMetricsSnapshot> {
+    try {
+      return await jsonFetch<IntegrationMetricsSnapshot>('/admin/metrics/integration');
+    } catch {
+      return { restConnectorLatencyHistogram: {} };
+    }
+  },
+
   async fetchRuntimeConfig(): Promise<RuntimeConfigPayload> {
     const response = await jsonFetch<{ config?: RuntimeConfigPayload }>('/admin/runtime-config');
     return response.config ?? {};
@@ -188,6 +206,10 @@ export const workbenchApi = {
 
   async replayDlq(id: number): Promise<unknown> {
     return jsonFetch(`/admin/dlq/${id}/replay`, { method: 'POST' });
+  },
+
+  async previewDlqPayload(id: number, maxLen = 1200): Promise<DlqPreviewResponse> {
+    return jsonFetch(`/admin/dlq/${id}/preview?maxLen=${maxLen}`);
   },
 
   async replayDlqBatch(filter: { type?: string; source?: string; branchId?: string; limit?: number }): Promise<DlqReplayBatchResponse> {

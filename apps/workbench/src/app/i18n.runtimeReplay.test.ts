@@ -13,4 +13,11 @@ describe('i18n runtime/replay dictionaries', () => {
     expect(translate('ru-RU', 'replayBatchLimitClamped')).toContain('ограничен');
     expect(translate('en-EN', 'replayBatchLimitClamped')).toContain('clamped');
   });
+
+  it('contains monitoring latency and risky runtime labels in ru and en', () => {
+    expect(translate('ru-RU', 'monitoringLatencyChartTitle')).toContain('Латентность');
+    expect(translate('en-EN', 'monitoringLatencyChartTitle')).toContain('latency');
+    expect(translate('ru-RU', 'runtimeRiskTitle')).toContain('Рискованные');
+    expect(translate('en-EN', 'runtimeRiskTitle')).toContain('Risky changes');
+  });
 });

@@ -65,6 +65,8 @@ const dictionaries = {
     metricOutbox: 'outbox pending',
     monitoringAutoRefresh: 'Автообновление (каждые 10с)',
     monitoringReplayMetricsTitle: 'Метрики последнего batch replay',
+    monitoringLatencyChartTitle: 'Латентность REST-коннекторов (гистограмма)',
+    monitoringLatencyChartEmpty: 'Нет данных по латентности коннекторов',
     monitoringReplayMetricsValues: 'Результат',
     monitoringReplayMetricsEmpty: 'Batch replay ещё не запускался',
     runtimeTitle: 'Runtime Config',
@@ -131,6 +133,7 @@ const dictionaries = {
     replayCorrelationCopyFailed: 'Не удалось скопировать correlationId',
     replayCorrelationMissing: 'correlationId отсутствует',
     replayResultPayload: 'Replay result payload',
+    replayPayloadDiffTitle: 'Sanitized payload diff (до/после replay)',
     runtimeAuditEmpty: 'Нет записей аудита',
     runtimeAuditExport: 'Экспорт аудита JSON',
     runtimeDiffPreviewTitle: 'Предпросмотр изменений (dry-run diff)',
@@ -161,7 +164,17 @@ const dictionaries = {
     integrationsRestPoliciesTitle: 'REST-коннекторы: retry/circuit-breaker',
     integrationsRestPoliciesEmpty: 'REST-коннекторы не настроены',
     integrationsConnector: 'Коннектор',
-    integrationsCircuitBreaker: 'Circuit breaker'
+    integrationsCircuitBreaker: 'Circuit breaker',
+    integrationsDegradedDrilldownTitle: 'Degraded drill-down',
+    integrationsDegradedDrilldownEmpty: 'Нет деградировавших интеграций',
+    integrationsDegradedReasonFilter: 'Причина деградации',
+    runtimeRiskTitle: 'Рискованные изменения (проверка перед сохранением)',
+    runtimeRiskNone: 'Рискованные изменения не обнаружены',
+    runtimeRiskRetry: 'Изменения retry-политики могут повлиять на SLA',
+    runtimeRiskSecurity: 'Изменения security/secret параметров требуют дополнительной проверки',
+    runtimeRiskTransport: 'Изменения transport/timeout/baseUrl могут вызвать деградацию интеграций',
+    runtimeRiskConfirm: 'Обнаружены рискованные изменения. Продолжить сохранение?',
+    runtimeRiskCanceled: 'Сохранение отменено: рискованные изменения не подтверждены'
   },
   'en-EN': {
     appTitle: 'IB Workbench',
@@ -196,6 +209,8 @@ const dictionaries = {
     metricOutbox: 'outbox pending',
     monitoringAutoRefresh: 'Auto-refresh (every 10s)',
     monitoringReplayMetricsTitle: 'Last batch replay metrics',
+    monitoringLatencyChartTitle: 'REST connector latency chart',
+    monitoringLatencyChartEmpty: 'No latency histogram data available',
     monitoringReplayMetricsValues: 'Result',
     monitoringReplayMetricsEmpty: 'Batch replay has not been run yet',
     runtimeTitle: 'Runtime Config',
@@ -262,6 +277,7 @@ const dictionaries = {
     replayCorrelationCopyFailed: 'Failed to copy correlationId',
     replayCorrelationMissing: 'correlationId is missing',
     replayResultPayload: 'Replay result payload',
+    replayPayloadDiffTitle: 'Sanitized payload diff (before/after replay)',
     runtimeAuditEmpty: 'No audit records',
     runtimeAuditExport: 'Export audit JSON',
     runtimeDiffPreviewTitle: 'Change preview (dry-run diff)',
@@ -292,7 +308,17 @@ const dictionaries = {
     integrationsRestPoliciesTitle: 'REST connectors: retry/circuit-breaker',
     integrationsRestPoliciesEmpty: 'REST connectors are not configured',
     integrationsConnector: 'Connector',
-    integrationsCircuitBreaker: 'Circuit breaker'
+    integrationsCircuitBreaker: 'Circuit breaker',
+    integrationsDegradedDrilldownTitle: 'Degraded drill-down',
+    integrationsDegradedDrilldownEmpty: 'No degraded integrations',
+    integrationsDegradedReasonFilter: 'Degraded reason',
+    runtimeRiskTitle: 'Risky changes (save guard)',
+    runtimeRiskNone: 'No risky changes detected',
+    runtimeRiskRetry: 'Retry policy changes may affect SLA',
+    runtimeRiskSecurity: 'Security/secret changes require additional review',
+    runtimeRiskTransport: 'Transport/timeout/baseUrl changes may degrade integrations',
+    runtimeRiskConfirm: 'Risky changes detected. Continue save?',
+    runtimeRiskCanceled: 'Save canceled: risky changes were not confirmed'
   }
 } as const;
 

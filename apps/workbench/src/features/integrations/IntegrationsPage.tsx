@@ -11,6 +11,11 @@ type ConnectorRow = {
   circuitBreakerState: string;
 };
 
+type HealthRow = IntegrationHealth & {
+  renderedDetails: string;
+  degradedReason: string | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -19,11 +24,24 @@ function asNumberText(value: unknown): string {
   return typeof value === 'number' ? String(value) : '-';
 }
 
+function parseDegradedReason(rawDetails: string): string {
+  const prepared = rawDetails.trim();
+  if (!prepared) {
+    return 'UNKNOWN';
+  }
+  const lowered = prepared.toLowerCase();
+  if (lowered.includes('timeout')) return 'TIMEOUT';
+  if (lowered.includes('unavailable') || lowered.includes('no_items')) return 'UNAVAILABLE';
+  if (lowered.includes('http')) return 'HTTP_ERROR';
+  return prepared;
+}
+
 export function IntegrationsPage() {
-  const [rows, setRows] = useState<IntegrationHealth[]>([]);
+  const [rows, setRows] = useState<HealthRow[]>([]);
   const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'UP' | 'DEGRADED' | 'DOWN'>('ALL');
   const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const [selectedReason, setSelectedReason] = useState<string>('ALL');
   const { t } = useI18n();
 
   const load = useCallback(() => {
@@ -31,13 +49,17 @@ export function IntegrationsPage() {
       .fetchIntegrationsHealth()
       .then((items) => {
         setRows(
-          items.map((row) => ({
-            ...row,
-            details:
-              row.details === 'UNAVAILABLE'
-                ? t('integrationsHealthUnavailable')
-                : `${t('integrationsHealthStatusPrefix')}: ${row.details}`
-          }))
+          items.map((row) => {
+            const degradedReason = row.status === 'DEGRADED' ? parseDegradedReason(row.details) : null;
+            return {
+              ...row,
+              degradedReason,
+              renderedDetails:
+                row.details === 'UNAVAILABLE'
+                  ? t('integrationsHealthUnavailable')
+                  : `${t('integrationsHealthStatusPrefix')}: ${row.details}`
+            };
+          })
         );
         setLastCheckedAt(new Date().toLocaleString());
       });
@@ -73,9 +95,29 @@ export function IntegrationsPage() {
     load();
   }, [load]);
 
+  const degradedReasons = useMemo(() => {
+    const map = new Map<string, number>();
+    rows
+      .filter((row) => row.status === 'DEGRADED' && row.degradedReason)
+      .forEach((row) => {
+        const reason = row.degradedReason!;
+        map.set(reason, (map.get(reason) ?? 0) + 1);
+      });
+    return Array.from(map.entries()).map(([reason, count]) => ({ reason, count }));
+  }, [rows]);
+
   const visibleRows = useMemo(
-    () => rows.filter((row) => (statusFilter === 'ALL' ? true : row.status === statusFilter)),
-    [rows, statusFilter]
+    () =>
+      rows.filter((row) => {
+        if (statusFilter !== 'ALL' && row.status !== statusFilter) {
+          return false;
+        }
+        if (selectedReason === 'ALL') {
+          return true;
+        }
+        return row.status === 'DEGRADED' && row.degradedReason === selectedReason;
+      }),
+    [rows, selectedReason, statusFilter]
   );
 
   return (
@@ -104,11 +146,35 @@ export function IntegrationsPage() {
               <td>{row.system}</td>
               <td>{row.status}</td>
               <td>{row.latencyMs} ms</td>
-              <td>{row.details}</td>
+              <td>{row.renderedDetails}</td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      <h3>{t('integrationsDegradedDrilldownTitle')}</h3>
+      {degradedReasons.length === 0 ? (
+        <p>{t('integrationsDegradedDrilldownEmpty')}</p>
+      ) : (
+        <>
+          <div className="actions">
+            <label>
+              {t('integrationsDegradedReasonFilter')}
+              <select value={selectedReason} onChange={(e) => setSelectedReason(e.target.value)}>
+                <option value="ALL">{t('integrationsStatusAll')}</option>
+                {degradedReasons.map((row) => (
+                  <option key={row.reason} value={row.reason}>{row.reason}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <ul>
+            {degradedReasons.map((row) => (
+              <li key={row.reason}>{row.reason}: {row.count}</li>
+            ))}
+          </ul>
+        </>
+      )}
 
       <h3>{t('integrationsRestPoliciesTitle')}</h3>
       {connectors.length === 0 ? (

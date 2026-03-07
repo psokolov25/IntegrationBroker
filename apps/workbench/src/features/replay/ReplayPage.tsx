@@ -4,6 +4,30 @@ import { useI18n } from '../../app/I18nContext';
 
 const PAGE_SIZE = 10;
 
+type DiffRow = { kind: 'added' | 'removed' | 'same'; line: string };
+
+function buildLineDiff(before: string, after: string): DiffRow[] {
+  const a = before.split('\n');
+  const b = after.split('\n');
+  const len = Math.max(a.length, b.length);
+  const rows: DiffRow[] = [];
+  for (let i = 0; i < len; i += 1) {
+    const left = a[i] ?? '';
+    const right = b[i] ?? '';
+    if (left === right) {
+      rows.push({ kind: 'same', line: right });
+      continue;
+    }
+    if (left) {
+      rows.push({ kind: 'removed', line: left });
+    }
+    if (right) {
+      rows.push({ kind: 'added', line: right });
+    }
+  }
+  return rows.slice(0, 120);
+}
+
 function outcomeToNotice(
   t: (key: 'replayQueued' | 'replayOutcomeLocked' | 'replayOutcomeDead' | 'replayOutcomeFailed' | 'replayOutcomeUnknown') => string,
   payload: unknown
@@ -54,6 +78,8 @@ export function ReplayPage() {
   const [restOutboxItems, setRestOutboxItems] = useState<OutboxItem[]>([]);
   const [notice, setNotice] = useState<string>('');
   const [lastReplayPayload, setLastReplayPayload] = useState<string>('');
+  const [payloadBefore, setPayloadBefore] = useState<string>('');
+  const [payloadAfter, setPayloadAfter] = useState<string>('');
   const [batchFilter, setBatchFilter] = useState('');
   const [batchLimit, setBatchLimit] = useState('50');
   const [dlqTypeFilter, setDlqTypeFilter] = useState('');
@@ -102,9 +128,31 @@ export function ReplayPage() {
 
   const replayAndRefresh = async (task: () => Promise<unknown>) => {
     const payload = await task();
+    const after = prettyJson(payload);
     setNotice(outcomeToNotice(t, payload));
-    setLastReplayPayload(prettyJson(payload));
+    setLastReplayPayload(after);
     await load();
+    return payload;
+  };
+
+  const replayDlqWithDiff = async (id: number) => {
+    let beforeText = '';
+    try {
+      const beforePreview = await workbenchApi.previewDlqPayload(id, 1200);
+      beforeText = beforePreview.preview ?? '';
+    } catch {
+      beforeText = '';
+    }
+    setPayloadBefore(beforeText);
+
+    const replayPayload = await replayAndRefresh(() => workbenchApi.replayDlq(id));
+
+    try {
+      const afterPreview = await workbenchApi.previewDlqPayload(id, 1200);
+      setPayloadAfter(afterPreview.preview ?? prettyJson(replayPayload));
+    } catch {
+      setPayloadAfter(prettyJson(replayPayload));
+    }
   };
 
   const replayBatch = async () => {
@@ -133,6 +181,8 @@ export function ReplayPage() {
     const limitHint = response.limitClamped ? ` (${t('replayBatchLimitClamped')}: ${response.requestedLimit}→${response.appliedLimit})` : '';
     setNotice(`${t('replayBatchResult')}: OK=${response.ok}, LOCKED=${response.locked}, FAILED=${response.failed}, DEAD=${response.dead}${limitHint}`);
     setLastReplayPayload(prettyJson(response));
+    setPayloadBefore('');
+    setPayloadAfter('');
     await load();
   };
 
@@ -153,6 +203,18 @@ export function ReplayPage() {
         <button onClick={() => load()}>{t('refresh')}</button>
       </div>
       {notice && <p>{notice}</p>}
+
+      {payloadBefore || payloadAfter ? (
+        <details>
+          <summary>{t('replayPayloadDiffTitle')}</summary>
+          <pre>
+            {buildLineDiff(payloadBefore, payloadAfter)
+              .map((row) => `${row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ' '} ${row.line}`)
+              .join('\n')}
+          </pre>
+        </details>
+      ) : null}
+
       {lastReplayPayload && (
         <details>
           <summary>{t('replayResultPayload')}</summary>
@@ -177,7 +239,7 @@ export function ReplayPage() {
                 <tr key={`dlq-${row.id}`}>
                   <td>{row.id}</td><td>{row.status}</td><td>{row.type ?? row.messageId ?? '-'}</td>
                   <td>
-                    <button onClick={() => replayAndRefresh(() => workbenchApi.replayDlq(row.id))}>{t('replayMessage')}</button>
+                    <button onClick={() => replayDlqWithDiff(row.id)}>{t('replayMessage')}</button>
                     <button onClick={() => copyCorrelationId(row.correlationId)}>{t('replayCopyCorrelation')}</button>
                   </td>
                 </tr>
