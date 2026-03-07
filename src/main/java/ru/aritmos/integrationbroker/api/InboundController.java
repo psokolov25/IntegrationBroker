@@ -31,6 +31,7 @@ import ru.aritmos.integrationbroker.core.KeycloakProxyEnrichmentService;
 import ru.aritmos.integrationbroker.core.MessagingOutboxService;
 import ru.aritmos.integrationbroker.core.RestOutboxService;
 import ru.aritmos.integrationbroker.core.SensitiveDataSanitizer;
+import ru.aritmos.integrationbroker.core.AdminOperationsMetrics;
 import ru.aritmos.integrationbroker.model.InboundEnvelope;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,6 +59,7 @@ public class InboundController {
     private final MessagingOutboxService messagingOutboxService;
     private final RestOutboxService restOutboxService;
     private final VisitManagerConflictMetrics visitManagerConflictMetrics;
+    private final AdminOperationsMetrics adminOperationsMetrics;
     private final ObjectMapper objectMapper;
     private final boolean inboundRateLimitEnabled;
     private final int inboundRateLimitPerMinute;
@@ -71,6 +73,7 @@ public class InboundController {
                              MessagingOutboxService messagingOutboxService,
                              RestOutboxService restOutboxService,
                              VisitManagerConflictMetrics visitManagerConflictMetrics,
+                             AdminOperationsMetrics adminOperationsMetrics,
                              ObjectMapper objectMapper,
                              @Value("${integrationbroker.inbound.rate-limit.enabled:false}") boolean inboundRateLimitEnabled,
                              @Value("${integrationbroker.inbound.rate-limit.per-source-per-minute:120}") int inboundRateLimitPerMinute) {
@@ -81,6 +84,7 @@ public class InboundController {
         this.messagingOutboxService = messagingOutboxService;
         this.restOutboxService = restOutboxService;
         this.visitManagerConflictMetrics = visitManagerConflictMetrics;
+        this.adminOperationsMetrics = adminOperationsMetrics;
         this.objectMapper = objectMapper;
         this.inboundRateLimitEnabled = inboundRateLimitEnabled;
         this.inboundRateLimitPerMinute = Math.max(1, inboundRateLimitPerMinute);
@@ -253,6 +257,7 @@ public class InboundController {
 
         long vmConflicts409 = visitManagerConflictMetrics.conflicts409();
         Map<String, Map<String, Long>> restConnectorLatencyHistogram = restOutboxService.connectorLatencyHistogram();
+        AdminOperationsMetrics.Snapshot adminOps = adminOperationsMetrics.snapshot();
 
         return new IntegrationMetrics(inProgress, completed, failed,
                 dlqPending, dlqReplayed, dlqDead,
@@ -260,7 +265,8 @@ public class InboundController {
                 restPending, restSent, restDead,
                 kcHits, kcMiss, kcErr,
                 vmConflicts409,
-                restConnectorLatencyHistogram);
+                restConnectorLatencyHistogram,
+                adminOps);
     }
 
     /**
@@ -325,7 +331,9 @@ public class InboundController {
             @Schema(description = "VisitManager: количество конфликтов HTTP 409")
             long visitManagerConflicts409,
             @Schema(description = "Гистограмма латентности outbound по connectorId (lt100ms/lt300ms/lt1000ms/gte1000ms)")
-            Map<String, Map<String, Long>> restConnectorLatencyHistogram
+            Map<String, Map<String, Long>> restConnectorLatencyHistogram,
+            @Schema(description = "Сводные метрики admin batch-операций (DLQ/Outbox)")
+            AdminOperationsMetrics.Snapshot adminOperations
     ) {
     }
 }
@@ -506,16 +514,19 @@ class AdminInboundDlqController {
     private final InboundDlqService inboundDlqService;
     private final InboundProcessingService processingService;
     private final ObjectMapper objectMapper;
+    private final AdminOperationsMetrics adminOperationsMetrics;
     private final int replayBatchLimitMax;
 
     @Inject
     AdminInboundDlqController(InboundDlqService inboundDlqService,
                               InboundProcessingService processingService,
                               ObjectMapper objectMapper,
+                              AdminOperationsMetrics adminOperationsMetrics,
                               @Value("${integrationbroker.admin.dlq.replay-batch.max-limit:100}") int replayBatchLimitMax) {
         this.inboundDlqService = inboundDlqService;
         this.processingService = processingService;
         this.objectMapper = objectMapper;
+        this.adminOperationsMetrics = adminOperationsMetrics;
         this.replayBatchLimitMax = Math.max(1, replayBatchLimitMax);
     }
 
@@ -589,6 +600,7 @@ class AdminInboundDlqController {
         int lim = Math.min(Math.max(1, requested), replayBatchLimitMax);
         String reason = request == null ? null : request.reason();
         int updated = inboundDlqService.markIgnoredBatch(status, type, source, branchId, lim, reason);
+        adminOperationsMetrics.recordDlqMarkIgnoredBatch(updated, requested, lim);
         return new DlqMarkIgnoredResponse(updated, requested, lim);
     }
     @Post(uri = "/{id}/replay")
@@ -670,6 +682,7 @@ class AdminInboundDlqController {
                 type,
                 source,
                 branchId);
+        adminOperationsMetrics.recordDlqReplayBatch(records.size(), ok, locked, failed, dead, requestedLimit, lim, limitClamped);
 
         return new DlqReplayBatchResponse(records.size(), ok, locked, failed, dead, items, requestedLimit, lim, limitClamped);
     }
@@ -770,7 +783,7 @@ class AdminInboundDlqController {
             @Schema(description = "Фильтр по type") String type,
             @Schema(description = "Фильтр по source/sourceSystem/system") String source,
             @Schema(description = "Фильтр по branchId") String branchId,
-            @Schema(description = "Лимит (1..200)") Integer limit,
+            @Schema(description = "Лимит (1..configuredMax)") Integer limit,
             @Schema(description = "Причина пометки") String reason
     ) {
     }
@@ -910,10 +923,16 @@ class AdminMessagingOutboxController {
 class AdminRestOutboxController {
 
     private final RestOutboxService restOutboxService;
+    private final AdminOperationsMetrics adminOperationsMetrics;
+    private final int cancelBatchLimitMax;
 
     @Inject
-    AdminRestOutboxController(RestOutboxService restOutboxService) {
+    AdminRestOutboxController(RestOutboxService restOutboxService,
+                              AdminOperationsMetrics adminOperationsMetrics,
+                              @Value("${integrationbroker.admin.outbox.rest.cancel-batch.max-limit:200}") int cancelBatchLimitMax) {
         this.restOutboxService = restOutboxService;
+        this.adminOperationsMetrics = adminOperationsMetrics;
+        this.cancelBatchLimitMax = Math.max(1, cancelBatchLimitMax);
     }
 
     @Get(uri = "/{id}")
@@ -980,8 +999,9 @@ class AdminRestOutboxController {
         String pathPrefix = request == null ? null : request.pathPrefix();
         String reason = request == null ? null : request.reason();
         int requested = request == null || request.limit() == null ? 50 : request.limit();
-        int lim = Math.min(Math.max(1, requested), 200);
+        int lim = Math.min(Math.max(1, requested), cancelBatchLimitMax);
         int cancelled = restOutboxService.cancelQueuedBatch(connectorId, pathPrefix, lim, reason);
+        adminOperationsMetrics.recordRestCancelBatch(cancelled, requested, lim);
         return new RestOutboxCancelBatchResponse(cancelled, requested, lim, connectorId, pathPrefix);
     }
     @Serdeable
@@ -996,7 +1016,7 @@ class AdminRestOutboxController {
     record RestOutboxCancelBatchRequest(
             @Schema(description = "Фильтр connectorId") String connectorId,
             @Schema(description = "Фильтр префикса path") String pathPrefix,
-            @Schema(description = "Лимит (1..200)") Integer limit,
+            @Schema(description = "Лимит (1..configuredMax)") Integer limit,
             @Schema(description = "Причина отмены") String reason
     ) {
     }

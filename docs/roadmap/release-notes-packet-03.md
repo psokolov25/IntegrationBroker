@@ -29,9 +29,9 @@
 
 ## Checklist внедрения
 
-- [ ] Проверить права `IB_ADMIN` на новые admin endpoints.
+- [x] Проверить права `IB_ADMIN` на новые admin endpoints.
 - [ ] Согласовать политику batch-cancel outbox с поддержкой.
-- [ ] Подтвердить лимиты replay/cancel в production-профиле.
-- [ ] Убедиться, что dashboards учитывают новые admin-операции.
+- [x] Подтвердить лимиты replay/cancel в production-профиле.
+- [x] Убедиться, что dashboards учитывают новые admin-операции.
 - [ ] Провести smoke на примерах appointment custom-client.
 

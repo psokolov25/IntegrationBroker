@@ -30,6 +30,7 @@
     <!-- Версии выравнены по референсным сервисам (VisitManager/DeviceManager/KeycloakProxy). -->
     <micronaut.runtime>netty</micronaut.runtime>
     <micronaut.aot.enabled>false</micronaut.aot.enabled>
+    <exec.mainClass>ru.aritmos.integrationbroker.Application</exec.mainClass>
 
     <junit.jupiter.version>5.12.2</junit.jupiter.version>
     <maven.compiler.release>${release.version}</maven.compiler.release>
@@ -179,7 +180,7 @@
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
-      <scope>test</scope>
+      <scope>runtime</scope>
     </dependency>
   </dependencies>
 
@@ -188,6 +189,14 @@
       <plugin>
         <groupId>io.micronaut.maven</groupId>
         <artifactId>micronaut-maven-plugin</artifactId>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <configuration combine.self="override">
+          <mainClass>${exec.mainClass}</mainClass>
+        </configuration>
       </plugin>
 
       <plugin>
@@ -242,6 +251,8 @@
         <configuration>
           <!-- Ускоряем тестовые прогоны: сайт не собираем, отчёты минимальные -->
           <useSystemClassLoader>true</useSystemClassLoader>
+          <!-- Workaround: избегаем deadlock в Micronaut service scanning на ForkJoin commonPool. -->
+          <argLine>-Djava.util.concurrent.ForkJoinPool.common.parallelism=1</argLine>
         </configuration>
       </plugin>
 
