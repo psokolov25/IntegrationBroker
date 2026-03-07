@@ -14,5 +14,10 @@
       "branchId": "BR-1",
       "doctorId": "DOC-55"
     }
+  },
+  "expected": {
+    "slotId": "S-100",
+    "serviceCode": "CONSULT",
+    "httpStatus": 200
   }
 }

@@ -41,6 +41,7 @@
 - `GET /admin/dlq?status=PENDING&limit=100`
 - `GET /admin/outbox/messaging?status=DEAD&limit=100`
 - `GET /admin/outbox/rest?status=DEAD&limit=100`
+- `POST /admin/outbox/rest/cancel-batch` (только для `QUEUED`, использовать фильтр `connectorId`)
 
 ## Правила безопасности
 
@@ -72,3 +73,12 @@
 - `ERROR_RETRYABLE` снижается до фонового уровня;
 - новые записи outbox переходят в `SENT`;
 - replay последних `PENDING` завершается без роста `DEAD`.
+
+
+### Политика batch-cancel для REST outbox
+
+- Операция предназначена только для записей в статусе `QUEUED`; `SENT/DEAD` не отменяются массово.
+- В production запускать `cancel-batch` только с фильтром `connectorId`, чтобы не остановить независимые интеграции.
+- Перед запуском зафиксировать `correlationId/requestId` и reason в тикете инцидента.
+- После отмены проверить, что объём `QUEUED` снизился, а новые записи идут по исправленному коннектору.
+

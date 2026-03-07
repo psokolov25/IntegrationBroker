@@ -13,12 +13,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 class ExamplesSchemaSmokeTest {
 
     @Test
-    void appointmentExamples_shouldBeValidJson() throws Exception {
+    void allExamples_shouldBeValidJson() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        Path dir = Path.of("src/main/resources/examples/appointment");
+        Path dir = Path.of("src/main/resources/examples");
         List<Path> files;
-        try (var stream = Files.list(dir)) {
-            files = stream.filter(p -> p.getFileName().toString().endsWith(".json")).toList();
+        try (var stream = Files.walk(dir)) {
+            files = stream
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().endsWith(".json"))
+                    .sorted()
+                    .toList();
         }
         assertFalse(files.isEmpty());
 
