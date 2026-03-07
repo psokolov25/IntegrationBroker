@@ -1,0 +1,25 @@
+{
+  "operation": "getAppointments",
+  "meta": {
+    "correlationId": "corr-apt-happy-001",
+    "requestId": "req-apt-happy-001",
+    "idempotencyKey": "crm:appointment:get:C-700"
+  },
+  "request": {
+    "keys": [
+      {"type": "clientId", "value": "C-700"}
+    ],
+    "from": "2026-03-06T00:00:00Z",
+    "to": "2026-03-10T23:59:59Z",
+    "context": {
+      "branchId": "BR-1",
+      "serviceCode": "CONSULT"
+    }
+  },
+  "expected": {
+    "appointmentId": "APT-1001",
+    "serviceCode": "CONSULT",
+    "specialistName": "Иванов И.И.",
+    "httpStatus": 200
+  }
+}
