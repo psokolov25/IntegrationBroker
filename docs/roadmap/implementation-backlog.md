@@ -117,10 +117,10 @@
 85. `DONE` Keycloak proxy: добавить fallback claim strategy для `preferred_username`.
 86. `DONE` Inbound API: поддержать `X-Request-Id` passthrough при наличии.
 87. `DONE` Inbound API: добавить опциональный rate-limit per source.
-88. `TODO` Workbench monitoring: добавить график latencies по коннекторам.
-89. `TODO` Workbench replay: добавить просмотр sanitized payload diff до/после.
-90. `TODO` Workbench integrations: добавить drill-down по degraded причинам.
-91. `TODO` Workbench runtime config: подсветка risky changes перед сохранением.
+88. `DONE` Workbench monitoring: добавить график latencies по коннекторам.
+89. `DONE` Workbench replay: добавить просмотр sanitized payload diff до/после.
+90. `DONE` Workbench integrations: добавить drill-down по degraded причинам.
+91. `DONE` Workbench runtime config: подсветка risky changes перед сохранением.
 92. `DONE` Workbench auth: добавить session-expiry banner + автоlogout.
 93. `DONE` Docs user-guide: добавить раздел по correlation/idempotency best practices.
 94. `DONE` Docs support-runbook: добавить playbook по 429/5xx деградациям.
@@ -133,15 +133,15 @@
 
 ## 7) Пакет 04 (стартовый backlog по шаблонам решений и переносимости конфигурации)
 
-101. `TODO` Спроектировать доменную модель Integration Branch Template: composition из runtime YAML-конфигурации, flow YAML и Groovy-скриптов с метаданными решения/подгруппы заказчиков.
-102. `TODO` Поддержать экспорт шаблона ветки в архив `*.ibt` (single-branch template) с манифестом версии формата и контрольными суммами файлов.
-103. `TODO` Поддержать экспорт набора шаблонов в архив `*.ibts` (template set) для библиотеки решений по нескольким подгруппам заказчиков.
-104. `TODO` Реализовать импорт `*.ibt`/`*.ibts` через dry-run валидацию: совместимость версии, целостность архива, schema-check YAML и compile-check Groovy.
-105. `TODO` Добавить стратегию merge при импорте: `replace`, `merge`, `keep-local` + отчёт конфликтов и список затронутых артефактов.
-106. `TODO` Зафиксировать человеко-читаемый формат артефактов: настройки только в `*.yml` (с комментариями), Groovy — отдельными `*.groovy` файлами без встраивания в JSON.
-107. `TODO` Добавить git-friendly правила структуры шаблона: детерминированная сортировка полей/файлов, стабильные имена директорий и нормализованный line-ending.
-108. `TODO` Добавить CLI/Admin endpoint для упаковки/распаковки шаблонов (import/export) с обязательными `correlationId/requestId` в аудит-логе операций.
-109. `TODO` Реализовать механизм параметризации «базовое решение -> кастомизация заказчика» (overrides layer), чтобы шаблоны подгруппы можно было финально донастраивать per-customer.
-110. `TODO` Добавить версионирование шаблонов (`templateVersion`, `compatibilityRange`) и semver-policy для безопасного обновления решений в эксплуатации.
-111. `TODO` Добавить unit/integration тесты round-trip (`export -> import`) для `ibt/ibts`, включая кейсы с комментариями YAML и проверкой неизменности Groovy-скриптов.
-112. `TODO` Подготовить документацию и примеры репозитория шаблонов для Git: recommended layout, naming conventions, release process и rollback strategy.
+101. `DONE` Спроектировать доменную модель Integration Branch Template: composition из runtime YAML-конфигурации, flow YAML и Groovy-скриптов с метаданными решения/подгруппы заказчиков.
+102. `DONE` Поддержать экспорт шаблона ветки в архив `*.ibt` (single-branch template) с манифестом версии формата и контрольными суммами файлов.
+103. `DONE` Поддержать экспорт набора шаблонов в архив `*.ibts` (template set) для библиотеки решений по нескольким подгруппам заказчиков.
+104. `DONE` Реализовать импорт `*.ibt`/`*.ibts` через dry-run валидацию: совместимость версии, целостность архива, schema-check YAML и compile-check Groovy.
+105. `DONE` Добавить стратегию merge при импорте: `replace`, `merge`, `keep-local` + отчёт конфликтов и список затронутых артефактов.
+106. `DONE` Зафиксировать человеко-читаемый формат артефактов: настройки только в `*.yml` (с комментариями), Groovy — отдельными `*.groovy` файлами без встраивания в JSON.
+107. `DONE` Добавить git-friendly правила структуры шаблона: детерминированная сортировка полей/файлов, стабильные имена директорий и нормализованный line-ending.
+108. `DONE` Добавить CLI/Admin endpoint для упаковки/распаковки шаблонов (import/export) с обязательными `correlationId/requestId` в аудит-логе операций.
+109. `DONE` Реализовать механизм параметризации «базовое решение -> кастомизация заказчика» (overrides layer), чтобы шаблоны подгруппы можно было финально донастраивать per-customer.
+110. `DONE` Добавить версионирование шаблонов (`templateVersion`, `compatibilityRange`) и semver-policy для безопасного обновления решений в эксплуатации.
+111. `DONE` Добавить unit/integration тесты round-trip (`export -> import`) для `ibt/ibts`, включая кейсы с комментариями YAML и проверкой неизменности Groovy-скриптов.
+112. `DONE` Подготовить документацию и примеры репозитория шаблонов для Git: recommended layout, naming conventions, release process и rollback strategy.

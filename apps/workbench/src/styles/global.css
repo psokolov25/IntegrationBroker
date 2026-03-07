@@ -95,3 +95,35 @@ button {
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
 }
+
+.latencyChartList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.latencyChartRow {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.75rem;
+}
+
+.latencyChartBars {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.latencyBarTrack {
+  width: 100%;
+  background: #e2e8f0;
+  border-radius: 999px;
+  height: 8px;
+}
+
+.latencyBarFill {
+  background: #1d4ed8;
+  height: 8px;
+  border-radius: 999px;
+}

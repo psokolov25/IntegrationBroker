@@ -59,4 +59,32 @@ describe('workbenchApi.replayDlqBatch', () => {
     expect(result.appliedLimit).toBe(77);
     expect(result.limitClamped).toBe(false);
   });
+
+
+  it('returns latency histogram fallback when integration metrics API is unavailable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new globalThis.Response('boom', { status: 500 }))
+    );
+
+    const result = await workbenchApi.fetchIntegrationMetrics();
+
+    expect(result).toEqual({ restConnectorLatencyHistogram: {} });
+  });
+
+  it('requests sanitized DLQ payload preview by id', async () => {
+    const fetchMock = vi.fn(async () =>
+      new globalThis.Response(
+        JSON.stringify({ id: 12, maxLen: 1200, preview: '{"masked":true}' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await workbenchApi.previewDlqPayload(12);
+
+    expect(result.preview).toContain('masked');
+    expect(fetchMock).toHaveBeenCalledWith('/admin/dlq/12/preview?maxLen=1200', expect.anything());
+  });
+
 });

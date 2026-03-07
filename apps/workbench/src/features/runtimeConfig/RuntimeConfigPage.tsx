@@ -2,6 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { workbenchApi, type RuntimeConfigAuditItem } from '../../api/workbenchApi';
 import { useI18n } from '../../app/I18nContext';
 
+type RiskRule = { keyFragment: string; reasonKey: 'runtimeRiskRetry' | 'runtimeRiskSecurity' | 'runtimeRiskTransport' };
+
+const RISK_RULES: RiskRule[] = [
+  { keyFragment: 'retry', reasonKey: 'runtimeRiskRetry' },
+  { keyFragment: 'security', reasonKey: 'runtimeRiskSecurity' },
+  { keyFragment: 'token', reasonKey: 'runtimeRiskSecurity' },
+  { keyFragment: 'timeout', reasonKey: 'runtimeRiskTransport' },
+  { keyFragment: 'baseUrl', reasonKey: 'runtimeRiskTransport' }
+];
+
 function flattenKeys(value: unknown, prefix = ''): string[] {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return prefix ? [prefix] : [];
@@ -17,6 +27,24 @@ function flattenKeys(value: unknown, prefix = ''): string[] {
     }
   }
   return keys;
+}
+
+function flattenLeafMap(value: unknown, prefix = '', out: Record<string, unknown> = {}): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    if (prefix) {
+      out[prefix] = value;
+    }
+    return out;
+  }
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      flattenLeafMap(v, path, out);
+    } else {
+      out[path] = v;
+    }
+  }
+  return out;
 }
 
 export function RuntimeConfigPage() {
@@ -44,6 +72,29 @@ export function RuntimeConfigPage() {
     const draftKeys = new Set(flattenKeys(parsedDraft));
     return Array.from(draftKeys).filter((k) => !baseKeys.has(k)).slice(0, 20);
   }, [parsedDraft, serverConfig]);
+
+  const changedKeys = useMemo(() => {
+    if (!parsedDraft) {
+      return [] as string[];
+    }
+    const baseMap = flattenLeafMap(serverConfig);
+    const draftMap = flattenLeafMap(parsedDraft);
+    const keys = new Set([...Object.keys(baseMap), ...Object.keys(draftMap)]);
+    return Array.from(keys)
+      .filter((key) => JSON.stringify(baseMap[key]) !== JSON.stringify(draftMap[key]))
+      .slice(0, 200);
+  }, [parsedDraft, serverConfig]);
+
+  const riskyChanges = useMemo(() => {
+    return changedKeys
+      .map((key) => {
+        const lowered = key.toLowerCase();
+        const match = RISK_RULES.find((rule) => lowered.includes(rule.keyFragment.toLowerCase()));
+        return match ? { key, reasonKey: match.reasonKey } : null;
+      })
+      .filter((row): row is { key: string; reasonKey: RiskRule['reasonKey'] } => Boolean(row))
+      .slice(0, 20);
+  }, [changedKeys]);
 
   const load = async () => {
     try {
@@ -92,6 +143,13 @@ export function RuntimeConfigPage() {
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       const dryRunResponse = await workbenchApi.dryRunRuntimeConfig(parsed);
+      if (riskyChanges.length > 0) {
+        const confirmed = window.confirm(t('runtimeRiskConfirm'));
+        if (!confirmed) {
+          setResult(t('runtimeRiskCanceled'));
+          return;
+        }
+      }
       if (!dryRunResponse.ok) {
         setResult(`${t('runtimeSaveBlocked')}: ${dryRunResponse.warnings.join(', ')}`);
         return;
@@ -126,6 +184,19 @@ export function RuntimeConfigPage() {
         <ul>
           {diffPreview.map((row) => (
             <li key={row}>{row}</li>
+          ))}
+        </ul>
+      )}
+
+      <h3>{t('runtimeRiskTitle')}</h3>
+      {riskyChanges.length === 0 ? (
+        <p>{t('runtimeRiskNone')}</p>
+      ) : (
+        <ul>
+          {riskyChanges.map((row) => (
+            <li key={`${row.key}-${row.reasonKey}`}>
+              <strong>{row.key}</strong> — {t(row.reasonKey)}
+            </li>
           ))}
         </ul>
       )}
