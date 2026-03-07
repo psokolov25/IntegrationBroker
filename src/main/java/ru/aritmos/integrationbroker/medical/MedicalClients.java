@@ -20,8 +20,8 @@ public class MedicalClients {
 
     public MedicalClients(ObjectMapper objectMapper) {
         // objectMapper оставлен на будущее (для маппинга FHIR и адаптеров), но сейчас не используется.
-        this.emiasLike = new NotImplementedMedicalClient("EMIAS_LIKE");
-        this.medeskLike = new NotImplementedMedicalClient("MEDESK_LIKE");
+        this.emiasLike = new DelegatingMedicalClient("EMIAS_LIKE");
+        this.medeskLike = new DelegatingMedicalClient("MEDESK_LIKE");
         this.fhirGeneric = new GenericMedicalClient();
     }
 
@@ -38,12 +38,13 @@ public class MedicalClients {
     }
 
     /**
-     * Заглушка для профилей, которые ещё не реализованы.
+     * Временный fallback для профилей, которые ещё не имеют отдельной реализации.
      */
-    private static final class NotImplementedMedicalClient implements MedicalClient {
+    private static final class DelegatingMedicalClient implements MedicalClient {
         private final String profile;
+        private final GenericMedicalClient generic = new GenericMedicalClient();
 
-        private NotImplementedMedicalClient(String profile) {
+        private DelegatingMedicalClient(String profile) {
             this.profile = profile;
         }
 
@@ -54,17 +55,36 @@ public class MedicalClients {
 
         @Override
         public MedicalModels.MedicalOutcome<MedicalModels.Patient> getPatient(MedicalModels.GetPatientRequest request, java.util.Map<String, Object> meta) {
-            return MedicalModels.MedicalOutcome.notImplemented(profile, "getPatient");
+            return withFallback(generic.getPatient(request, meta), "getPatient");
         }
 
         @Override
         public MedicalModels.MedicalOutcome<java.util.List<MedicalModels.UpcomingService>> getUpcomingServices(MedicalModels.UpcomingServicesRequest request, java.util.Map<String, Object> meta) {
-            return MedicalModels.MedicalOutcome.notImplemented(profile, "getUpcomingServices");
+            return withFallback(generic.getUpcomingServices(request, meta), "getUpcomingServices");
         }
 
         @Override
         public MedicalModels.MedicalOutcome<MedicalModels.MedicalRoutingContext> buildRoutingContext(MedicalModels.BuildRoutingContextRequest request, java.util.Map<String, Object> meta) {
-            return MedicalModels.MedicalOutcome.notImplemented(profile, "buildRoutingContext");
+            return withFallback(generic.buildRoutingContext(request, meta), "buildRoutingContext");
+        }
+
+        private <T> MedicalModels.MedicalOutcome<T> withFallback(MedicalModels.MedicalOutcome<T> out, String operation) {
+            java.util.Map<String, Object> details = new java.util.LinkedHashMap<>();
+            if (out != null && out.details() != null) {
+                details.putAll(out.details());
+            }
+            details.put("requestedProfile", profile);
+            details.put("executionProfile", generic.profileId());
+            details.put("operation", operation);
+            details.put("fallback", Boolean.TRUE);
+            return new MedicalModels.MedicalOutcome<>(
+                    out != null && out.success(),
+                    out == null ? "ERROR" : out.outcome(),
+                    out == null ? "MEDICAL_ERROR" : out.errorCode(),
+                    out == null ? "Medical outcome is null" : out.message(),
+                    out == null ? null : out.result(),
+                    java.util.Map.copyOf(details)
+            );
         }
     }
 

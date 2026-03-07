@@ -588,4 +588,24 @@ class AppointmentClientsTest {
         @Override public AppointmentModels.AppointmentOutcome<Boolean> cancelAppointment(AppointmentModels.CancelAppointmentRequest request, Map<String, Object> meta) { return AppointmentModels.AppointmentOutcome.notImplemented("test"); }
         @Override public AppointmentModels.AppointmentOutcome<AppointmentModels.QueuePlan> buildQueuePlan(AppointmentModels.BuildQueuePlanRequest request, Map<String, Object> meta) { return AppointmentModels.AppointmentOutcome.notImplemented("test"); }
     }
+
+    @Test
+    void delegatedProfile_shouldFallbackToGenericWithDetails() {
+        AppointmentClients clients = new AppointmentClients(null, new NoopCustomClient());
+
+        AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> out = clients.emiasAppointment().getNearestAppointment(
+                new AppointmentModels.GetNearestAppointmentRequest(
+                        List.of(new AppointmentModels.BookingKey("clientId", "C-100", Map.of())),
+                        Map.of("branchId", "BR-1")
+                ),
+                Map.of()
+        );
+
+        assertTrue(out.success());
+        assertNotNull(out.result());
+        assertEquals("EMIAS_APPOINTMENT", out.details().get("requestedProfile"));
+        assertEquals("GENERIC", out.details().get("executionProfile"));
+        assertEquals(Boolean.TRUE, out.details().get("fallback"));
+    }
+
 }
