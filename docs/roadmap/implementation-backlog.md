@@ -145,3 +145,50 @@
 110. `DONE` Добавить версионирование шаблонов (`templateVersion`, `compatibilityRange`) и semver-policy для безопасного обновления решений в эксплуатации.
 111. `DONE` Добавить unit/integration тесты round-trip (`export -> import`) для `ibt/ibts`, включая кейсы с комментариями YAML и проверкой неизменности Groovy-скриптов.
 112. `DONE` Подготовить документацию и примеры репозитория шаблонов для Git: recommended layout, naming conventions, release process и rollback strategy.
+
+## 8) Пакет 05 (инициализация следующей волны, 40+ задач)
+
+113. `DONE` CRM: включить временный fallback vendor-профилей (BITRIX24/AMOCRM/RETAILCRM/MEGAPLAN) на `GENERIC` с диагностикой профиля в `raw`.
+114. `DONE` Appointment: включить fallback профилей EMIAS/MEDTOCHKA/PRODOCTOROV/YCLIENTS/NAPOPRAVKU на `GENERIC` с деталями `requestedProfile/executionProfile/fallback`.
+115. `DONE` Medical: включить fallback профилей EMIAS_LIKE/MEDESK_LIKE на `FHIR_GENERIC` с enrichment `details`.
+116. `DONE` Тесты CRM: добавить проверку fallback-метаданных для vendor-профиля.
+117. `DONE` Тесты Appointment: добавить проверку fallback-метаданных для делегирующего профиля.
+118. `DONE` Тесты Medical: добавить проверку fallback-метаданных для делегирующего профиля.
+119. `DONE` Core: добавить endpoint просмотра текущего snapshot retry+jitter+circuit-breaker в одной выдаче.
+120. `TODO` Core: добавить export retry/circuit policy diff между runtime и baseline.
+121. `TODO` Core: добавить dry-run replay для outbox с выборочным suppress publish.
+122. `TODO` VM adapter: поддержать POST `/entrypoint/.../visits/parameters` с расширенным audit trail.
+123. `TODO` VM adapter: добавить нормализацию `207` для servicepoint auto-call start/cancel.
+124. `TODO` VM adapter: добавить sticky `sid` propagation policy для servicepoint сценариев.
+125. `DONE` DataBus adapter: добавить guard на размер `RouteEvent.dataBusUrls`.
+126. `DONE` DataBus adapter: добавить валидацию RFC1123 `Send-Date` перед отправкой.
+127. `DONE` DataBus adapter: добавить опцию mandatory `Service-Destination` per target profile.
+128. `TODO` Idempotency: добавить endpoint удаления `EXPIRED` записей по фильтру периода.
+129. `TODO` Idempotency: добавить метрику доли конфликтов duplicate/locked per source.
+130. `TODO` Idempotency: добавить batch unlock с dry-run отчётом.
+131. `TODO` DLQ: добавить endpoint перемещения ignored обратно в queued.
+132. `TODO` DLQ: добавить фильтр `ignoredReason` в list API.
+133. `TODO` DLQ: добавить policy auto-ignore для известных non-retriable ошибок.
+134. `TODO` Outbox: добавить endpoint priority bump для queued сообщений.
+135. `TODO` Outbox: добавить dedup fingerprint preview в API.
+136. `TODO` Outbox: добавить выборочный replay по `correlationId`.
+137. `TODO` Runtime config: добавить schema-валидацию для appointment/medical subprofiles.
+138. `DONE` Runtime config: добавить подсветку потенциального profile fallback в validation report.
+139. `TODO` Runtime config: добавить экспорт effective config с опцией redact secrets.
+140. `TODO` Workbench: добавить виджет по fallback-активациям (CRM/Medical/Appointment).
+141. `TODO` Workbench: добавить drill-down страницы профиля адаптера с last errors.
+142. `TODO` Workbench: добавить мастер импорта template set с preview конфликтов.
+143. `TODO` Workbench: добавить быстрый фильтр инцидентов по `correlationId`.
+144. `TODO` Workbench: добавить таблицу последних runtime-audit изменений с diff viewer.
+145. `TODO` Security: добавить строгий deny-list headers для admin proxy endpoints.
+146. `TODO` Security: расширить sanitizer на вложенные массивы бинарных blob-полей.
+147. `TODO` Security: добавить тесты на маскирование `Cookie sid` в debug traces.
+148. `TODO` Docs: обновить playbook CRM адаптеров под fallback-поведение prerelease.
+149. `TODO` Docs: обновить medical playbook с профилями fallback и рисками.
+150. `TODO` Docs: добавить rollout-checklist для переключения с fallback на real connector.
+151. `TODO` Examples: добавить flow-пример CRM sync+case через fallback vendor profile.
+152. `TODO` Examples: добавить flow-пример medical routing для emias-like профиля.
+153. `TODO` Examples: добавить flow-пример appointment queue plan через medtochka-like профиль.
+154. `TODO` Tests: добавить контрактный набор для fallback outcome details across layers.
+155. `TODO` Tests: добавить regression на детерминизм timestamp/id для fallback execution.
+156. `TODO` Release notes: сформировать пакет 05 alpha summary.

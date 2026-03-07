@@ -66,4 +66,21 @@ class MedicalClientsTest {
         assertEquals(first.result().get(0).startAt(), second.result().get(0).startAt());
     }
 
+
+    @Test
+    void delegatedProfile_shouldFallbackToGenericWithDetails() {
+        MedicalClients clients = new MedicalClients(null);
+
+        MedicalModels.MedicalOutcome<MedicalModels.Patient> out = clients.emiasLike().getPatient(
+                new MedicalModels.GetPatientRequest(List.of(new MedicalModels.PatientKey("clientId", "C-77")), Map.of()),
+                Map.of()
+        );
+
+        assertTrue(out.success());
+        assertNotNull(out.result());
+        assertEquals("EMIAS_LIKE", out.details().get("requestedProfile"));
+        assertEquals("FHIR_GENERIC", out.details().get("executionProfile"));
+        assertEquals(Boolean.TRUE, out.details().get("fallback"));
+    }
+
 }

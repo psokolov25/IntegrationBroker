@@ -604,6 +604,61 @@ class DataBusApiImplTest {
         assertEquals("integration-broker", requiredHeaders.get("Service-Sender"));
         assertNotNull(requiredHeaders.get("Send-Date"));
     }
+
+
+    @Test
+    void publishEventRoute_shouldFailWhenRouteUrlsExceedLimit() {
+        String old = System.getProperty("ib.databus.max-route-urls");
+        System.setProperty("ib.databus.max-route-urls", "1");
+        try {
+            StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+            DataBusApiImpl api = new DataBusApiImpl(stub, null);
+            assertThrows(IllegalArgumentException.class, () -> api.publishEventRoute(
+                    "target-1", "crm", "visit.created", List.of("http://bus-a", "http://bus-b"), Map.of("id", "1"), false, "src-1", "corr-1", "idem-1"
+            ));
+        } finally {
+            if (old == null) {
+                System.clearProperty("ib.databus.max-route-urls");
+            } else {
+                System.setProperty("ib.databus.max-route-urls", old);
+            }
+        }
+    }
+
+    @Test
+    void publishEvent_shouldFailWhenDestinationRequiredForTarget() {
+        String old = System.getProperty("ib.databus.require-destination-targets");
+        System.setProperty("ib.databus.require-destination-targets", "target-1");
+        try {
+            StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+            DataBusApiImpl api = new DataBusApiImpl(stub, null);
+            assertThrows(IllegalArgumentException.class,
+                    () -> api.publishEvent("target-1", "visit.created", " ", Map.of("visitId", "V-1"), false, "src-1", "corr-1", "idem-1"));
+        } finally {
+            if (old == null) {
+                System.clearProperty("ib.databus.require-destination-targets");
+            } else {
+                System.setProperty("ib.databus.require-destination-targets", old);
+            }
+        }
+    }
+
+    @Test
+    void publishEvent_shouldSetValidRfc1123SendDateHeader() {
+        StubDataBusGroovyAdapter stub = new StubDataBusGroovyAdapter();
+        DataBusApiImpl api = new DataBusApiImpl(stub, null);
+
+        Map<String, Object> result = api.publishEvent("target-1", "visit.created", "crm", Map.of("visitId", "V-1"), false, "src-1", "corr-1", "idem-1");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> envelope = (Map<String, Object>) result.get("envelope");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ib = (Map<String, Object>) envelope.get("_ib");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> requiredHeaders = (Map<String, Object>) ib.get("requiredHeaders");
+        assertDoesNotThrow(() -> java.time.ZonedDateTime.parse(String.valueOf(requiredHeaders.get("Send-Date")), java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME));
+    }
+
     private RuntimeConfigStore runtimeConfigStoreWithSender(String sender) {
         RuntimeConfigStore.DataBusIntegrationConfig cfg = new RuntimeConfigStore.DataBusIntegrationConfig(
                 true,

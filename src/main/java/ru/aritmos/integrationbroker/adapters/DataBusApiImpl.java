@@ -22,6 +22,7 @@ public class DataBusApiImpl implements DataBusApi {
 
     private static final int DEFAULT_MAX_PAYLOAD_BYTES = 262_144;
     private static final int DEFAULT_MAX_HEADERS_BYTES = 8_192;
+    private static final int DEFAULT_MAX_ROUTE_URLS = 32;
     private static final DateTimeFormatter RFC1123 = DateTimeFormatter.RFC_1123_DATE_TIME;
 
     private final DataBusGroovyAdapter dataBus;
@@ -42,6 +43,7 @@ public class DataBusApiImpl implements DataBusApi {
                                             String correlationId,
                                             String idempotencyKey) {
         String effectiveType = safeType(type, "UNKNOWN");
+        enforceDestinationPolicy(target, destination);
         String normalizedDestination = normalizeOrDefault(destination, "*");
         Map<String, Object> envelope = canonicalEventEnvelope(target, normalizedDestination, "events", effectiveType, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, payload);
         ensurePayloadWithinLimit(envelope.get("payload"));
@@ -60,6 +62,7 @@ public class DataBusApiImpl implements DataBusApi {
                                                  String correlationId,
                                                  String idempotencyKey) {
         String effectiveType = safeType(type, "UNKNOWN");
+        enforceDestinationPolicy(target, destination);
         String normalizedDestination = normalizeOrDefault(destination, "*");
         List<String> normalizedRouteUrls = normalizeRouteUrls(dataBusUrls);
         int requestedRouteCount = dataBusUrls == null ? 0 : dataBusUrls.size();
@@ -86,6 +89,7 @@ public class DataBusApiImpl implements DataBusApi {
                                            String correlationId,
                                            String idempotencyKey) {
         String effectiveFunction = safeType(function, "unknown");
+        enforceDestinationPolicy(target, destination);
         String normalizedDestination = normalizeOrDefault(destination, "*");
         Map<String, Object> envelope = canonicalRequestEnvelope(target, normalizedDestination, effectiveFunction, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, params);
         ensurePayloadWithinLimit(envelope.get("payload"));
@@ -103,6 +107,7 @@ public class DataBusApiImpl implements DataBusApi {
                                             String sourceMessageId,
                                             String correlationId,
                                             String idempotencyKey) {
+        enforceDestinationPolicy(target, destination);
         String normalizedDestination = normalizeOrDefault(destination, "*");
         Map<String, Object> envelope = canonicalResponseEnvelope(target, normalizedDestination, correlationId, sourceMessageId, idempotencyKey, sendToOtherBus, status, message, response);
         ensurePayloadWithinLimit(envelope.get("payload"));
@@ -114,11 +119,15 @@ public class DataBusApiImpl implements DataBusApi {
         if (dataBusUrls == null || dataBusUrls.isEmpty()) {
             return List.of();
         }
+        int maxRouteUrls = resolveMaxRouteUrls();
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
         for (String raw : dataBusUrls) {
             String v = normalize(raw);
             if (v != null) {
                 out.add(v);
+            }
+            if (maxRouteUrls > 0 && out.size() > maxRouteUrls) {
+                throw new IllegalArgumentException("DataBus routeDataBusUrls превышает лимит: " + out.size() + " > " + maxRouteUrls);
             }
         }
         return List.copyOf(out);
@@ -231,6 +240,7 @@ public class DataBusApiImpl implements DataBusApi {
         String sendDateHeaderName = db == null || normalize(db.sendDateHeaderName()) == null ? "Send-Date" : normalize(db.sendDateHeaderName());
         String senderService = resolveSenderServiceName();
         String sendDate = RFC1123.format(ZonedDateTime.now(ZoneId.of("GMT")));
+        validateRfc1123(sendDate, sendDateHeaderName);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put(destinationHeaderName, normalizeOrDefault(destination, "*"));
         if (sendToOtherBus != null) {
@@ -325,6 +335,63 @@ public class DataBusApiImpl implements DataBusApi {
     }
 
 
+    private void enforceDestinationPolicy(String target, String destination) {
+        List<String> requiredTargets = resolveRequiredDestinationTargets();
+        if (requiredTargets.isEmpty()) {
+            return;
+        }
+        String normalizedTarget = normalizeOrDefault(target, "default");
+        if (!requiredTargets.contains(normalizedTarget)) {
+            return;
+        }
+        if (normalize(destination) == null) {
+            throw new IllegalArgumentException("DataBus destination обязателен для target='" + normalizedTarget + "'");
+        }
+    }
+
+    private List<String> resolveRequiredDestinationTargets() {
+        String value = System.getProperty("ib.databus.require-destination-targets");
+        if (value == null || value.isBlank()) {
+            value = System.getenv("IB_DATABUS_REQUIRE_DESTINATION_TARGETS");
+        }
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String part : value.split(",")) {
+            String normalized = normalize(part);
+            if (normalized != null) {
+                out.add(normalized);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    private void validateRfc1123(String value, String headerName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("DataBus header " + headerName + " пустой");
+        }
+        try {
+            ZonedDateTime.parse(value, RFC1123);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("DataBus header " + headerName + " не RFC1123: " + value, ex);
+        }
+    }
+
+    private int resolveMaxRouteUrls() {
+        String value = System.getProperty("ib.databus.max-route-urls");
+        if (value == null || value.isBlank()) {
+            value = System.getenv("IB_DATABUS_MAX_ROUTE_URLS");
+        }
+        if (value == null || value.isBlank()) {
+            return DEFAULT_MAX_ROUTE_URLS;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_MAX_ROUTE_URLS;
+        }
+    }
 
     private Map<String, Object> mapOfObjects(Object raw) {
         if (!(raw instanceof Map<?, ?> m) || m.isEmpty()) {

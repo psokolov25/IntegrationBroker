@@ -43,4 +43,24 @@ class CrmClientsTest {
         assertNotNull(first.result());
         assertEquals(first.result().createdAt(), second.result().createdAt());
     }
+
+    @Test
+    void vendorProfiles_shouldFallbackToGenericWithMetadata() {
+        CrmClients.Bitrix24CrmClient client = new CrmClients.Bitrix24CrmClient();
+
+        CrmModels.FindCustomerRequest req = new CrmModels.FindCustomerRequest(
+                java.util.List.of(new CrmModels.LookupKey("phone", "+79990000001", Map.of())),
+                Map.of(),
+                CrmModels.ResolvePolicy.defaultPolicy()
+        );
+
+        CrmModels.CrmOutcome<CrmModels.CustomerCard> out = client.findCustomer(null, req, Map.of());
+
+        assertTrue(out.success());
+        assertNotNull(out.result());
+        assertEquals("BITRIX24", out.raw().get("requestedProfile"));
+        assertEquals("GENERIC", out.raw().get("executionProfile"));
+        assertEquals(Boolean.TRUE, out.raw().get("fallback"));
+    }
+
 }

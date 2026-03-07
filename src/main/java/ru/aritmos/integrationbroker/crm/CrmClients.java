@@ -26,14 +26,11 @@ public final class CrmClients {
         // утилитарный класс
     }
 
-    /**
-     * Базовый каркас для не реализованных профилей.
-     */
-    private abstract static class AbstractNotImplementedCrmClient implements CrmClient {
+    private abstract static class DelegatingCrmClient implements CrmClient {
 
         protected final RuntimeConfigStore.CrmProfile profile;
 
-        protected AbstractNotImplementedCrmClient(RuntimeConfigStore.CrmProfile profile) {
+        protected DelegatingCrmClient(RuntimeConfigStore.CrmProfile profile) {
             this.profile = profile;
         }
 
@@ -42,39 +39,58 @@ public final class CrmClients {
             return profile;
         }
 
+        protected abstract GenericCrmClient delegate();
+
         @Override
         public CrmModels.CrmOutcome<CrmModels.CustomerCard> findCustomer(RuntimeConfigStore.RuntimeConfig cfg, CrmModels.FindCustomerRequest request, Map<String, Object> meta) {
-            return CrmModels.CrmOutcome.fail("NOT_IMPLEMENTED", "CRM профиль " + profile + " подключён как каркас. Реализуйте интеграцию через CrmClient.", Map.of("profile", profile.name()));
+            return withProfile(delegate().findCustomer(cfg, request, meta));
         }
 
         @Override
         public CrmModels.CrmOutcome<CrmModels.CustomerCard> upsertCustomer(RuntimeConfigStore.RuntimeConfig cfg, CrmModels.UpsertCustomerRequest request, Map<String, Object> meta) {
-            return CrmModels.CrmOutcome.fail("NOT_IMPLEMENTED", "Операция upsertCustomer не реализована для профиля " + profile, Map.of("profile", profile.name()));
+            return withProfile(delegate().upsertCustomer(cfg, request, meta));
         }
 
         @Override
         public CrmModels.CrmOutcome<CrmModels.LeadRef> createLead(RuntimeConfigStore.RuntimeConfig cfg, CrmModels.CreateLeadRequest request, Map<String, Object> meta) {
-            return CrmModels.CrmOutcome.fail("NOT_IMPLEMENTED", "Операция createLead не реализована для профиля " + profile, Map.of("profile", profile.name()));
+            return withProfile(delegate().createLead(cfg, request, meta));
         }
 
         @Override
         public CrmModels.CrmOutcome<CrmModels.TaskRef> createTask(RuntimeConfigStore.RuntimeConfig cfg, CrmModels.CreateTaskRequest request, Map<String, Object> meta) {
-            return CrmModels.CrmOutcome.fail("NOT_IMPLEMENTED", "Операция createTask не реализована для профиля " + profile, Map.of("profile", profile.name()));
+            return withProfile(delegate().createTask(cfg, request, meta));
         }
 
         @Override
         public CrmModels.CrmOutcome<Map<String, Object>> appendNote(RuntimeConfigStore.RuntimeConfig cfg, CrmModels.AppendNoteRequest request, Map<String, Object> meta) {
-            return CrmModels.CrmOutcome.fail("NOT_IMPLEMENTED", "Операция appendNote не реализована для профиля " + profile, Map.of("profile", profile.name()));
+            return withProfile(delegate().appendNote(cfg, request, meta));
         }
 
         @Override
         public CrmModels.CrmOutcome<CrmModels.ServiceCaseRef> createServiceCase(RuntimeConfigStore.RuntimeConfig cfg, CrmModels.CreateServiceCaseRequest request, Map<String, Object> meta) {
-            return CrmModels.CrmOutcome.fail("NOT_IMPLEMENTED", "Операция createServiceCase не реализована для профиля " + profile, Map.of("profile", profile.name()));
+            return withProfile(delegate().createServiceCase(cfg, request, meta));
         }
 
         @Override
         public CrmModels.CrmOutcome<CrmModels.SyncCustomerAndCreateCaseResult> syncCustomerAndCreateCase(RuntimeConfigStore.RuntimeConfig cfg, CrmModels.SyncCustomerAndCreateCaseRequest request, Map<String, Object> meta) {
-            return CrmModels.CrmOutcome.fail("NOT_IMPLEMENTED", "Операция syncCustomerAndCreateCase не реализована для профиля " + profile, Map.of("profile", profile.name()));
+            return withProfile(delegate().syncCustomerAndCreateCase(cfg, request, meta));
+        }
+
+        private <T> CrmModels.CrmOutcome<T> withProfile(CrmModels.CrmOutcome<T> original) {
+            Map<String, Object> raw = new HashMap<>();
+            if (original != null && original.raw() != null) {
+                raw.putAll(original.raw());
+            }
+            raw.put("requestedProfile", profile.name());
+            raw.put("executionProfile", RuntimeConfigStore.CrmProfile.GENERIC.name());
+            raw.put("fallback", Boolean.TRUE);
+            return new CrmModels.CrmOutcome<>(
+                    original != null && original.success(),
+                    original == null ? null : original.result(),
+                    original == null ? "ERROR" : original.errorCode(),
+                    original == null ? "CRM outcome is null" : original.errorMessage(),
+                    Map.copyOf(raw)
+            );
         }
     }
 
@@ -255,9 +271,16 @@ public final class CrmClients {
      * Bitrix24 CRM клиент (каркас).
      */
     @Singleton
-    public static class Bitrix24CrmClient extends AbstractNotImplementedCrmClient {
+    public static class Bitrix24CrmClient extends DelegatingCrmClient {
+        private final GenericCrmClient genericDelegate = new GenericCrmClient();
+
         public Bitrix24CrmClient() {
             super(RuntimeConfigStore.CrmProfile.BITRIX24);
+        }
+
+        @Override
+        protected GenericCrmClient delegate() {
+            return genericDelegate;
         }
     }
 
@@ -265,9 +288,16 @@ public final class CrmClients {
      * amoCRM клиент (каркас).
      */
     @Singleton
-    public static class AmoCrmClient extends AbstractNotImplementedCrmClient {
+    public static class AmoCrmClient extends DelegatingCrmClient {
+        private final GenericCrmClient genericDelegate = new GenericCrmClient();
+
         public AmoCrmClient() {
             super(RuntimeConfigStore.CrmProfile.AMOCRM);
+        }
+
+        @Override
+        protected GenericCrmClient delegate() {
+            return genericDelegate;
         }
     }
 
@@ -275,9 +305,16 @@ public final class CrmClients {
      * RetailCRM клиент (каркас).
      */
     @Singleton
-    public static class RetailCrmClient extends AbstractNotImplementedCrmClient {
+    public static class RetailCrmClient extends DelegatingCrmClient {
+        private final GenericCrmClient genericDelegate = new GenericCrmClient();
+
         public RetailCrmClient() {
             super(RuntimeConfigStore.CrmProfile.RETAILCRM);
+        }
+
+        @Override
+        protected GenericCrmClient delegate() {
+            return genericDelegate;
         }
     }
 
@@ -285,9 +322,16 @@ public final class CrmClients {
      * Мегаплан клиент (каркас).
      */
     @Singleton
-    public static class MegaplanCrmClient extends AbstractNotImplementedCrmClient {
+    public static class MegaplanCrmClient extends DelegatingCrmClient {
+        private final GenericCrmClient genericDelegate = new GenericCrmClient();
+
         public MegaplanCrmClient() {
             super(RuntimeConfigStore.CrmProfile.MEGAPLAN);
+        }
+
+        @Override
+        protected GenericCrmClient delegate() {
+            return genericDelegate;
         }
     }
 }

@@ -32,21 +32,21 @@ public class AppointmentClients {
                               RuntimeConfigStore configStore,
                               OAuth2ClientCredentialsService oauth2Service) {
         // objectMapper оставлен на будущее (маппинг под реальные API), но сейчас не используется.
-        this.emiasAppointment = new NotImplementedAppointmentClient("EMIAS_APPOINTMENT");
-        this.medtochkaLike = new NotImplementedAppointmentClient("MEDTOCHKA_LIKE");
-        this.prodoctorovLike = new NotImplementedAppointmentClient("PRODOCTOROV_LIKE");
-        this.yclientsLike = new NotImplementedAppointmentClient("YCLIENTS_LIKE");
-        this.napopravkuLike = new NotImplementedAppointmentClient("NAPOPRAVKU_LIKE");
+        this.emiasAppointment = new DelegatingAppointmentClient("EMIAS_APPOINTMENT");
+        this.medtochkaLike = new DelegatingAppointmentClient("MEDTOCHKA_LIKE");
+        this.prodoctorovLike = new DelegatingAppointmentClient("PRODOCTOROV_LIKE");
+        this.yclientsLike = new DelegatingAppointmentClient("YCLIENTS_LIKE");
+        this.napopravkuLike = new DelegatingAppointmentClient("NAPOPRAVKU_LIKE");
         this.customConnector = new AppointmentCustomConnectorClient(configStore::getEffective, objectMapper, oauth2Service);
         this.generic = new GenericAppointmentClient();
     }
 
     AppointmentClients(ObjectMapper objectMapper, AppointmentClient customConnectorClient) {
-        this.emiasAppointment = new NotImplementedAppointmentClient("EMIAS_APPOINTMENT");
-        this.medtochkaLike = new NotImplementedAppointmentClient("MEDTOCHKA_LIKE");
-        this.prodoctorovLike = new NotImplementedAppointmentClient("PRODOCTOROV_LIKE");
-        this.yclientsLike = new NotImplementedAppointmentClient("YCLIENTS_LIKE");
-        this.napopravkuLike = new NotImplementedAppointmentClient("NAPOPRAVKU_LIKE");
+        this.emiasAppointment = new DelegatingAppointmentClient("EMIAS_APPOINTMENT");
+        this.medtochkaLike = new DelegatingAppointmentClient("MEDTOCHKA_LIKE");
+        this.prodoctorovLike = new DelegatingAppointmentClient("PRODOCTOROV_LIKE");
+        this.yclientsLike = new DelegatingAppointmentClient("YCLIENTS_LIKE");
+        this.napopravkuLike = new DelegatingAppointmentClient("NAPOPRAVKU_LIKE");
         this.customConnector = customConnectorClient;
         this.generic = new GenericAppointmentClient();
     }
@@ -80,43 +80,63 @@ public class AppointmentClients {
     }
 
     /**
-     * Заглушка для профилей, которые ещё не реализованы.
+     * Временный fallback для профилей, которые ещё не имеют отдельной реализации.
+     * <p>
+     * Делегирует операции generic-клиенту, помечая результат метаданными профиля.
      */
-    private static final class NotImplementedAppointmentClient implements AppointmentClient {
+    private static final class DelegatingAppointmentClient implements AppointmentClient {
         private final String profile;
+        private final GenericAppointmentClient generic = new GenericAppointmentClient();
 
-        private NotImplementedAppointmentClient(String profile) {
+        private DelegatingAppointmentClient(String profile) {
             this.profile = profile;
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<List<AppointmentModels.Appointment>> getAppointments(AppointmentModels.GetAppointmentsRequest request, Map<String, Object> meta) {
-            return AppointmentModels.AppointmentOutcome.notImplemented(profile + ": getAppointments не реализован");
+            return withFallback(generic.getAppointments(request, meta));
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> getNearestAppointment(AppointmentModels.GetNearestAppointmentRequest request, Map<String, Object> meta) {
-            return AppointmentModels.AppointmentOutcome.notImplemented(profile + ": getNearestAppointment не реализован");
+            return withFallback(generic.getNearestAppointment(request, meta));
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<List<AppointmentModels.Slot>> getAvailableSlots(AppointmentModels.GetAvailableSlotsRequest request, Map<String, Object> meta) {
-            return AppointmentModels.AppointmentOutcome.notImplemented(profile + ": getAvailableSlots не реализован");
+            return withFallback(generic.getAvailableSlots(request, meta));
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> bookSlot(AppointmentModels.BookSlotRequest request, Map<String, Object> meta) {
-            return AppointmentModels.AppointmentOutcome.notImplemented(profile + ": bookSlot не реализован");
+            return withFallback(generic.bookSlot(request, meta));
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<Boolean> cancelAppointment(AppointmentModels.CancelAppointmentRequest request, Map<String, Object> meta) {
-            return AppointmentModels.AppointmentOutcome.notImplemented(profile + ": cancelAppointment не реализован");
+            return withFallback(generic.cancelAppointment(request, meta));
         }
 
         @Override
         public AppointmentModels.AppointmentOutcome<AppointmentModels.QueuePlan> buildQueuePlan(AppointmentModels.BuildQueuePlanRequest request, Map<String, Object> meta) {
-            return AppointmentModels.AppointmentOutcome.notImplemented(profile + ": buildQueuePlan не реализован");
+            return withFallback(generic.buildQueuePlan(request, meta));
+        }
+
+        private <T> AppointmentModels.AppointmentOutcome<T> withFallback(AppointmentModels.AppointmentOutcome<T> out) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            if (out != null && out.details() != null) {
+                details.putAll(out.details());
+            }
+            details.put("requestedProfile", profile);
+            details.put("executionProfile", "GENERIC");
+            details.put("fallback", Boolean.TRUE);
+            return new AppointmentModels.AppointmentOutcome<>(
+                    out != null && out.success(),
+                    out == null ? "ERROR" : out.code(),
+                    out == null ? "Appointment outcome is null" : out.message(),
+                    out == null ? null : out.result(),
+                    Map.copyOf(details)
+            );
         }
     }
 
