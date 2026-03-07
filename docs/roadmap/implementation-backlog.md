@@ -154,15 +154,15 @@
 116. `DONE` Тесты CRM: добавить проверку fallback-метаданных для vendor-профиля.
 117. `DONE` Тесты Appointment: добавить проверку fallback-метаданных для делегирующего профиля.
 118. `DONE` Тесты Medical: добавить проверку fallback-метаданных для делегирующего профиля.
-119. `TODO` Core: добавить endpoint просмотра текущего snapshot retry+jitter+circuit-breaker в одной выдаче.
+119. `DONE` Core: добавить endpoint просмотра текущего snapshot retry+jitter+circuit-breaker в одной выдаче.
 120. `TODO` Core: добавить export retry/circuit policy diff между runtime и baseline.
 121. `TODO` Core: добавить dry-run replay для outbox с выборочным suppress publish.
 122. `TODO` VM adapter: поддержать POST `/entrypoint/.../visits/parameters` с расширенным audit trail.
 123. `TODO` VM adapter: добавить нормализацию `207` для servicepoint auto-call start/cancel.
 124. `TODO` VM adapter: добавить sticky `sid` propagation policy для servicepoint сценариев.
-125. `TODO` DataBus adapter: добавить guard на размер `RouteEvent.dataBusUrls`.
-126. `TODO` DataBus adapter: добавить валидацию RFC1123 `Send-Date` перед отправкой.
-127. `TODO` DataBus adapter: добавить опцию mandatory `Service-Destination` per target profile.
+125. `DONE` DataBus adapter: добавить guard на размер `RouteEvent.dataBusUrls`.
+126. `DONE` DataBus adapter: добавить валидацию RFC1123 `Send-Date` перед отправкой.
+127. `DONE` DataBus adapter: добавить опцию mandatory `Service-Destination` per target profile.
 128. `TODO` Idempotency: добавить endpoint удаления `EXPIRED` записей по фильтру периода.
 129. `TODO` Idempotency: добавить метрику доли конфликтов duplicate/locked per source.
 130. `TODO` Idempotency: добавить batch unlock с dry-run отчётом.
@@ -173,7 +173,7 @@
 135. `TODO` Outbox: добавить dedup fingerprint preview в API.
 136. `TODO` Outbox: добавить выборочный replay по `correlationId`.
 137. `TODO` Runtime config: добавить schema-валидацию для appointment/medical subprofiles.
-138. `TODO` Runtime config: добавить подсветку потенциального profile fallback в validation report.
+138. `DONE` Runtime config: добавить подсветку потенциального profile fallback в validation report.
 139. `TODO` Runtime config: добавить экспорт effective config с опцией redact secrets.
 140. `TODO` Workbench: добавить виджет по fallback-активациям (CRM/Medical/Appointment).
 141. `TODO` Workbench: добавить drill-down страницы профиля адаптера с last errors.

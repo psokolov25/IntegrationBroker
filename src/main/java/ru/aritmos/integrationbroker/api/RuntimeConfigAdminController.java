@@ -121,6 +121,7 @@ public class RuntimeConfigAdminController {
             warnings.add("ERROR: " + err);
         }
         warnings.addAll(RuntimeConfigStore.collectAppointmentCustomOperationWarnings(normalized));
+        warnings.addAll(collectFallbackWarnings(normalized));
         return new DryRunResponse(validationErrors.isEmpty(), warnings, normalized.revision());
     }
 
@@ -142,6 +143,40 @@ public class RuntimeConfigAdminController {
     public RuntimeConfigAuditResponse audit(@Parameter(description = "Лимит записей (1..500)") Integer limit) {
         int lim = limit == null ? 100 : limit;
         return new RuntimeConfigAuditResponse(runtimeConfigStore.getAuditTrail(lim));
+    }
+
+    @Get(uri = "/connectors/policy-snapshot")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Получить snapshot effective retry/jitter/circuit-breaker по REST-коннекторам")
+    @ApiResponse(responseCode = "200", description = "Snapshot возвращён", content = @Content(schema = @Schema(implementation = ConnectorPolicySnapshotResponse.class)))
+    public ConnectorPolicySnapshotResponse connectorPolicySnapshot() {
+        RuntimeConfigStore.RuntimeConfig cfg = runtimeConfigStore.getEffective();
+        RuntimeConfigStore.RestOutboxConfig global = cfg == null ? null : cfg.restOutbox();
+        java.util.Map<String, RuntimeConfigStore.RestConnectorConfig> connectors = cfg == null || cfg.restConnectors() == null
+                ? java.util.Map.of()
+                : cfg.restConnectors();
+        List<ConnectorPolicySnapshotItem> items = new ArrayList<>();
+        for (java.util.Map.Entry<String, RuntimeConfigStore.RestConnectorConfig> e : connectors.entrySet()) {
+            RuntimeConfigStore.RestConnectorConfig connector = e.getValue();
+            RuntimeConfigStore.RetryPolicy retry = connector == null ? null : connector.retryPolicy();
+            RuntimeConfigStore.CircuitBreakerPolicy cb = connector == null ? null : connector.circuitBreaker();
+            int maxAttempts = retry != null && retry.maxAttempts() != null ? retry.maxAttempts() : (global == null ? 10 : global.maxAttempts());
+            int baseDelaySec = retry != null && retry.baseDelaySec() != null ? retry.baseDelaySec() : (global == null ? 5 : global.baseDelaySec());
+            int maxDelaySec = retry != null && retry.maxDelaySec() != null ? retry.maxDelaySec() : (global == null ? 600 : global.maxDelaySec());
+            items.add(new ConnectorPolicySnapshotItem(
+                    e.getKey(),
+                    connector == null ? null : connector.baseUrl(),
+                    maxAttempts,
+                    baseDelaySec,
+                    maxDelaySec,
+                    20,
+                    cb != null && cb.enabled(),
+                    cb == null ? null : cb.failureThreshold(),
+                    cb == null ? null : cb.openTimeoutSec(),
+                    cb == null ? null : cb.halfOpenMaxProbes()
+            ));
+        }
+        return new ConnectorPolicySnapshotResponse(items);
     }
 
     @Serdeable
@@ -175,4 +210,48 @@ public class RuntimeConfigAdminController {
             @Schema(description = "Список изменений") List<RuntimeConfigStore.RuntimeConfigAuditEntry> items
     ) {
     }
+
+
+    @Serdeable
+    @Schema(name = "ConnectorPolicySnapshotResponse", description = "Effective snapshot retry/jitter/circuit-breaker по коннекторам")
+    record ConnectorPolicySnapshotResponse(
+            @Schema(description = "Список effective политик") List<ConnectorPolicySnapshotItem> items
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "ConnectorPolicySnapshotItem", description = "Effective политика конкретного REST-коннектора")
+    record ConnectorPolicySnapshotItem(
+            @Schema(description = "Идентификатор коннектора") String connectorId,
+            @Schema(description = "Базовый URL") String baseUrl,
+            @Schema(description = "Максимум попыток") int retryMaxAttempts,
+            @Schema(description = "Базовая задержка, сек") int retryBaseDelaySec,
+            @Schema(description = "Максимальная задержка, сек") int retryMaxDelaySec,
+            @Schema(description = "Jitter в процентах (фиксированный runtime-паттерн)") int jitterPercent,
+            @Schema(description = "Включен ли circuit-breaker") boolean circuitBreakerEnabled,
+            @Schema(description = "Порог ошибок для открытия") Integer circuitBreakerFailureThreshold,
+            @Schema(description = "Время открытого состояния, сек") Integer circuitBreakerOpenTimeoutSec,
+            @Schema(description = "Максимум half-open probes") Integer circuitBreakerHalfOpenMaxProbes
+    ) {
+    }
+
+    private static List<String> collectFallbackWarnings(RuntimeConfigStore.RuntimeConfig cfg) {
+        List<String> warnings = new ArrayList<>();
+        RuntimeConfigStore.CrmConfig crm = cfg == null ? null : cfg.crm();
+        if (crm != null && crm.enabled() && crm.profile() != RuntimeConfigStore.CrmProfile.GENERIC) {
+            warnings.add("CRM profile " + crm.profile() + " в prerelease работает через fallback на GENERIC до включения реального коннектора");
+        }
+        RuntimeConfigStore.MedicalConfig medical = cfg == null ? null : cfg.medical();
+        if (medical != null && medical.enabled() && medical.profile() != RuntimeConfigStore.MedicalProfile.FHIR_GENERIC) {
+            warnings.add("Medical profile " + medical.profile() + " в prerelease работает через fallback на FHIR_GENERIC");
+        }
+        RuntimeConfigStore.AppointmentConfig appointment = cfg == null ? null : cfg.appointment();
+        if (appointment != null && appointment.enabled()
+                && appointment.profile() != RuntimeConfigStore.AppointmentProfile.GENERIC
+                && appointment.profile() != RuntimeConfigStore.AppointmentProfile.CUSTOM_CONNECTOR) {
+            warnings.add("Appointment profile " + appointment.profile() + " в prerelease работает через fallback на GENERIC");
+        }
+        return warnings;
+    }
+
 }
