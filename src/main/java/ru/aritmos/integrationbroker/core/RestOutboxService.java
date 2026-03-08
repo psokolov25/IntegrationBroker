@@ -12,6 +12,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -300,14 +302,22 @@ private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig c
     }
 
     public List<RestListItem> list(String status, int limit) {
-        return list(status, null, limit);
+        return list(status, null, null, limit);
     }
 
     public List<RestListItem> list(String status, String connectorId, int limit) {
+        return list(status, connectorId, null, limit);
+    }
+
+    public List<RestListItem> list(String status, String connectorId, String correlationId, int limit) {
         int lim = Math.min(Math.max(1, limit), 200);
         List<RestListItem> out = new ArrayList<>();
-        boolean filterStatus = status != null && !status.isBlank();
-        boolean filterConnector = connectorId != null && !connectorId.isBlank();
+        String normalizedStatus = normalizeFilter(status);
+        String normalizedConnectorId = normalizeFilter(connectorId);
+        String normalizedCorrelationId = normalizeFilter(correlationId);
+        boolean filterStatus = normalizedStatus != null;
+        boolean filterConnector = normalizedConnectorId != null;
+        boolean filterCorrelation = normalizedCorrelationId != null;
 
         StringBuilder sql = new StringBuilder("SELECT id, status, http_method, url, connector_id, path, attempts, max_attempts, next_attempt_at, updated_at FROM ib_rest_outbox");
         List<String> where = new ArrayList<>();
@@ -316,6 +326,9 @@ private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig c
         }
         if (filterConnector) {
             where.add("connector_id=?");
+        }
+        if (filterCorrelation) {
+            where.add("correlation_id=?");
         }
         if (!where.isEmpty()) {
             sql.append(" WHERE ").append(String.join(" AND ", where));
@@ -326,10 +339,13 @@ private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig c
              PreparedStatement ps = c.prepareStatement(sql.toString())) {
             int idx = 1;
             if (filterStatus) {
-                ps.setString(idx++, status);
+                ps.setString(idx++, normalizedStatus);
             }
             if (filterConnector) {
-                ps.setString(idx++, connectorId);
+                ps.setString(idx++, normalizedConnectorId);
+            }
+            if (filterCorrelation) {
+                ps.setString(idx++, normalizedCorrelationId);
             }
             ps.setInt(idx, lim);
             try (ResultSet rs = ps.executeQuery()) {
@@ -354,7 +370,17 @@ private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig c
         return out;
     }
 
+    public List<RestListItem> listByCorrelation(String correlationId, int limit) {
+        return list(null, null, correlationId, limit);
+    }
 
+    private static String normalizeFilter(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
 
     public int cancelQueuedBatch(String connectorId, String pathPrefix, int limit, String reason) {
         int lim = Math.min(Math.max(1, limit), 200);
@@ -486,6 +512,42 @@ private static boolean isTreat4xxAsSuccess(RuntimeConfigStore.RestOutboxConfig c
         } catch (Exception e) {
             return false;
         }
+    }
+
+
+    public boolean priorityBump(long id, Integer shiftSeconds) {
+        int shift = shiftSeconds == null ? 60 : Math.min(Math.max(1, shiftSeconds), 3600);
+        Instant now = Instant.now();
+        Instant bumped = now.minusSeconds(shift);
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE ib_rest_outbox SET status=?, updated_at=?, next_attempt_at=?, last_error_code=NULL, last_error_message=NULL WHERE id=? AND status<>?")) {
+            ps.setString(1, Status.PENDING.name());
+            ps.setTimestamp(2, Timestamp.from(now));
+            ps.setTimestamp(3, Timestamp.from(bumped));
+            ps.setLong(4, id);
+            ps.setString(5, Status.SENDING.name());
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public DedupFingerprintPreview dedupFingerprintPreview(long id) {
+        RestRecord rec = get(id);
+        if (rec == null) {
+            return null;
+        }
+        String material = String.join("|",
+                safeShort(rec.httpMethod(), 32, ""),
+                safeShort(rec.url(), 2000, ""),
+                safeShort(rec.connectorId(), 128, ""),
+                safeShort(rec.path(), 2000, ""),
+                safeShort(rec.idempotencyKey(), 128, ""),
+                safeShort(rec.idemKey(), 128, ""),
+                safeShort(rec.bodyJson(), 10000, "")
+        );
+        return new DedupFingerprintPreview(id, sha256Hex(material), material.length());
     }
 
     private int getAttempts(long id) {
@@ -840,6 +902,20 @@ private Map<String, String> buildAuthHeaders(RuntimeConfigStore.RestConnectorAut
         }
     }
 
+    private static String sha256Hex(String material) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest((material == null ? "" : material).getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private static String safeShort(String s, int max, String def) {
         if (s == null) {
             return def;
@@ -880,6 +956,14 @@ private Map<String, String> buildAuthHeaders(RuntimeConfigStore.RestConnectorAut
             String lastErrorMessage,
             Integer lastHttpStatus,
             String updatedAt
+    ) {
+    }
+
+    @Serdeable
+    public record DedupFingerprintPreview(
+            long id,
+            String fingerprint,
+            int materialLength
     ) {
     }
 

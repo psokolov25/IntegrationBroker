@@ -152,7 +152,7 @@ public class VisitManagerGroovyAdapter {
                 idempotencyKey
         );
 
-        return toMap(r);
+        return toMap(r, buildCreateVisitAudit(branchId, entryPointId, serviceIds, parameters, printTicket, segmentationRuleId, sourceMessageId, correlationId, idempotencyKey));
     }
 
     /**
@@ -209,7 +209,7 @@ public class VisitManagerGroovyAdapter {
                 idempotencyKey
         );
 
-        return toMap(r);
+        return toMap(r, buildCreateVisitAudit(branchId, entryPointId, serviceIds, params, printTicket, segmentationRuleId, sourceMessageId, correlationId, idempotencyKey));
     }
 
 
@@ -563,7 +563,7 @@ public class VisitManagerGroovyAdapter {
                 correlationId,
                 idempotencyKey
         );
-        return toMap(r);
+        return toMapWithAutoCallNormalization(r);
     }
 
     /**
@@ -602,7 +602,7 @@ public class VisitManagerGroovyAdapter {
                 correlationId,
                 idempotencyKey
         );
-        return toMap(r);
+        return toMapWithAutoCallNormalization(r);
     }
 
     /**
@@ -788,6 +788,10 @@ public class VisitManagerGroovyAdapter {
     }
 
     private static Map<String, Object> toMap(VisitManagerClient.CallResult r) {
+        return toMap(r, null);
+    }
+
+    private static Map<String, Object> toMap(VisitManagerClient.CallResult r, Map<String, Object> audit) {
         if (r == null) {
             return Map.of("success", false, "errorCode", "NULL", "errorMessage", "Пустой результат");
         }
@@ -800,7 +804,44 @@ public class VisitManagerGroovyAdapter {
         out.put("errorCode", r.errorCode());
         out.put("errorMessage", r.errorMessage());
         out.put("body", r.response());
+        if (audit != null && !audit.isEmpty()) {
+            out.put("audit", Map.copyOf(audit));
+        }
         return out;
+    }
+
+    private static Map<String, Object> toMapWithAutoCallNormalization(VisitManagerClient.CallResult r) {
+        Map<String, Object> out = toMap(r);
+        if (r != null && "DIRECT".equals(r.mode()) && r.httpStatus() == 207) {
+            out.put("success", true);
+            out.put("normalizedHttpStatus", 200);
+            out.put("normalizedOutcome", "ALREADY_IN_TARGET_STATE");
+        }
+        return out;
+    }
+
+    private static Map<String, Object> buildCreateVisitAudit(String branchId,
+                                                              String entryPointId,
+                                                              List<String> serviceIds,
+                                                              Map<String, String> parameters,
+                                                              boolean printTicket,
+                                                              String segmentationRuleId,
+                                                              String sourceMessageId,
+                                                              String correlationId,
+                                                              String idempotencyKey) {
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("operation", "createVisitWithParameters");
+        audit.put("endpoint", "POST /entrypoint/branches/{branchId}/entry-points/{entryPointId}/visits/parameters");
+        audit.put("branchId", branchId);
+        audit.put("entryPointId", entryPointId);
+        audit.put("serviceCount", serviceIds == null ? 0 : serviceIds.size());
+        audit.put("hasParameters", parameters != null && !parameters.isEmpty());
+        audit.put("printTicket", printTicket);
+        audit.put("segmentationRuleId", segmentationRuleId);
+        audit.put("sourceMessageId", sourceMessageId);
+        audit.put("correlationId", correlationId);
+        audit.put("idempotencyKey", idempotencyKey);
+        return audit;
     }
 
     private static String safeStr(Object v) {
@@ -849,30 +890,53 @@ public class VisitManagerGroovyAdapter {
     }
 
     private static Map<String, String> withSidCookie(Map<String, String> headers, String sid) {
-        String normalizedSid = safeStr(sid);
-        if (normalizedSid == null) {
-            return headers == null ? Map.of() : headers;
-        }
+        String resolvedSid = safeStr(sid);
+        String cookieKey = "Cookie";
+        String existingCookie = null;
+
         Map<String, String> out = new HashMap<>();
         if (headers != null) {
             out.putAll(headers);
-        }
-        String key = "Cookie";
-        String existing = null;
-        for (Map.Entry<String, String> e : out.entrySet()) {
-            if (e.getKey() != null && "cookie".equalsIgnoreCase(e.getKey())) {
-                key = e.getKey();
-                existing = e.getValue();
-                break;
+            for (Map.Entry<String, String> e : headers.entrySet()) {
+                if (e.getKey() != null && "cookie".equalsIgnoreCase(e.getKey())) {
+                    cookieKey = e.getKey();
+                    existingCookie = e.getValue();
+                    break;
+                }
+            }
+            if (resolvedSid == null) {
+                resolvedSid = extractSidFromCookie(existingCookie);
             }
         }
-        String sidCookie = "sid=" + normalizedSid;
-        if (existing == null || existing.isBlank()) {
-            out.put(key, sidCookie);
-        } else if (!existing.contains("sid=")) {
-            out.put(key, existing + "; " + sidCookie);
+
+        if (resolvedSid == null) {
+            return out.isEmpty() ? Map.of() : out;
         }
+
+        String sidCookie = "sid=" + resolvedSid;
+        if (existingCookie == null || existingCookie.isBlank()) {
+            out.put(cookieKey, sidCookie);
+            return out;
+        }
+
+        String updated = existingCookie.replaceAll("(?i)(^|;\\s*)sid\\s*=\\s*[^;]*", "$1" + sidCookie)
+                .replaceAll(";\\s*;", ";")
+                .replaceAll("^;\\s*", "")
+                .trim();
+        if (!updated.toLowerCase().contains("sid=")) {
+            updated = updated + "; " + sidCookie;
+        }
+        out.put(cookieKey, updated);
         return out;
+    }
+
+    private static String extractSidFromCookie(String cookie) {
+        String c = safeStr(cookie);
+        if (c == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)(?:^|;\\s*)sid\\s*=\\s*([^;\\s]+)").matcher(c);
+        return m.find() ? safeStr(m.group(1)) : null;
     }
 
     private static Map<String, Object> invalidArgument(String field) {

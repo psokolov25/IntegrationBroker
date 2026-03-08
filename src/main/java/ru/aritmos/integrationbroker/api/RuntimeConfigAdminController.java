@@ -116,7 +116,9 @@ public class RuntimeConfigAdminController {
         if (normalized.restConnectors() == null || normalized.restConnectors().isEmpty()) {
             warnings.add("Не задано ни одного rest-connector");
         }
-        List<String> validationErrors = RuntimeConfigStore.validateAppointmentCustomOperations(normalized);
+        List<String> validationErrors = new ArrayList<>();
+        validationErrors.addAll(RuntimeConfigStore.validateAppointmentCustomOperations(normalized));
+        validationErrors.addAll(RuntimeConfigStore.validateSubprofiles(normalized));
         for (String err : validationErrors) {
             warnings.add("ERROR: " + err);
         }
@@ -145,6 +147,17 @@ public class RuntimeConfigAdminController {
         return new RuntimeConfigAuditResponse(runtimeConfigStore.getAuditTrail(lim));
     }
 
+    @Get(uri = "/export")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Экспорт effective runtime-конфигурации")
+    @ApiResponse(responseCode = "200", description = "Конфигурация экспортирована", content = @Content(schema = @Schema(implementation = RuntimeConfigExportResponse.class)))
+    public RuntimeConfigExportResponse export(@Parameter(description = "Маскировать секреты") Boolean redactSecrets) {
+        RuntimeConfigStore.RuntimeConfig effective = runtimeConfigStore.getEffective();
+        boolean redact = redactSecrets == null || redactSecrets;
+        RuntimeConfigStore.RuntimeConfig exported = redact ? sanitizeForAdmin(effective) : effective;
+        return new RuntimeConfigExportResponse(exported, redact, effective == null ? null : effective.revision());
+    }
+
     @Get(uri = "/connectors/policy-snapshot")
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(summary = "Получить snapshot effective retry/jitter/circuit-breaker по REST-коннекторам")
@@ -157,28 +170,77 @@ public class RuntimeConfigAdminController {
                 : cfg.restConnectors();
         List<ConnectorPolicySnapshotItem> items = new ArrayList<>();
         for (java.util.Map.Entry<String, RuntimeConfigStore.RestConnectorConfig> e : connectors.entrySet()) {
-            RuntimeConfigStore.RestConnectorConfig connector = e.getValue();
-            RuntimeConfigStore.RetryPolicy retry = connector == null ? null : connector.retryPolicy();
-            RuntimeConfigStore.CircuitBreakerPolicy cb = connector == null ? null : connector.circuitBreaker();
-            int maxAttempts = retry != null && retry.maxAttempts() != null ? retry.maxAttempts() : (global == null ? 10 : global.maxAttempts());
-            int baseDelaySec = retry != null && retry.baseDelaySec() != null ? retry.baseDelaySec() : (global == null ? 5 : global.baseDelaySec());
-            int maxDelaySec = retry != null && retry.maxDelaySec() != null ? retry.maxDelaySec() : (global == null ? 600 : global.maxDelaySec());
-            items.add(new ConnectorPolicySnapshotItem(
-                    e.getKey(),
-                    connector == null ? null : connector.baseUrl(),
-                    maxAttempts,
-                    baseDelaySec,
-                    maxDelaySec,
-                    20,
-                    cb != null && cb.enabled(),
-                    cb == null ? null : cb.failureThreshold(),
-                    cb == null ? null : cb.openTimeoutSec(),
-                    cb == null ? null : cb.halfOpenMaxProbes()
-            ));
+            items.add(toPolicySnapshotItem(e.getKey(), e.getValue(), global));
         }
         return new ConnectorPolicySnapshotResponse(items);
     }
 
+
+
+    @Get(uri = "/connectors/policy-diff")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Получить diff retry/circuit policy: effective vs baseline")
+    @ApiResponse(responseCode = "200", description = "Diff возвращён", content = @Content(schema = @Schema(implementation = ConnectorPolicyDiffResponse.class)))
+    public ConnectorPolicyDiffResponse connectorPolicyDiff() {
+        RuntimeConfigStore.RuntimeConfig effective = runtimeConfigStore.getEffective();
+        RuntimeConfigStore.RuntimeConfig baseline = runtimeConfigStore.getBaseline();
+        RuntimeConfigStore.RestOutboxConfig effectiveGlobal = effective == null ? null : effective.restOutbox();
+        RuntimeConfigStore.RestOutboxConfig baselineGlobal = baseline == null ? null : baseline.restOutbox();
+
+        java.util.Map<String, RuntimeConfigStore.RestConnectorConfig> effectiveConnectors = effective == null || effective.restConnectors() == null
+                ? java.util.Map.of()
+                : effective.restConnectors();
+        java.util.Map<String, RuntimeConfigStore.RestConnectorConfig> baselineConnectors = baseline == null || baseline.restConnectors() == null
+                ? java.util.Map.of()
+                : baseline.restConnectors();
+
+        java.util.Set<String> connectorIds = new java.util.TreeSet<>();
+        connectorIds.addAll(effectiveConnectors.keySet());
+        connectorIds.addAll(baselineConnectors.keySet());
+
+        List<ConnectorPolicyDiffItem> items = new ArrayList<>();
+        for (String connectorId : connectorIds) {
+            RuntimeConfigStore.RestConnectorConfig effectiveConnector = effectiveConnectors.get(connectorId);
+            RuntimeConfigStore.RestConnectorConfig baselineConnector = baselineConnectors.get(connectorId);
+
+            ConnectorPolicySnapshotItem effectiveItem = toPolicySnapshotItem(connectorId, effectiveConnector, effectiveGlobal);
+            ConnectorPolicySnapshotItem baselineItem = toPolicySnapshotItem(connectorId, baselineConnector, baselineGlobal);
+
+            boolean changed = effectiveItem.retryMaxAttempts() != baselineItem.retryMaxAttempts()
+                    || effectiveItem.retryBaseDelaySec() != baselineItem.retryBaseDelaySec()
+                    || effectiveItem.retryMaxDelaySec() != baselineItem.retryMaxDelaySec()
+                    || effectiveItem.jitterPercent() != baselineItem.jitterPercent()
+                    || effectiveItem.circuitBreakerEnabled() != baselineItem.circuitBreakerEnabled()
+                    || !java.util.Objects.equals(effectiveItem.circuitBreakerFailureThreshold(), baselineItem.circuitBreakerFailureThreshold())
+                    || !java.util.Objects.equals(effectiveItem.circuitBreakerOpenTimeoutSec(), baselineItem.circuitBreakerOpenTimeoutSec())
+                    || !java.util.Objects.equals(effectiveItem.circuitBreakerHalfOpenMaxProbes(), baselineItem.circuitBreakerHalfOpenMaxProbes());
+
+            items.add(new ConnectorPolicyDiffItem(connectorId, changed, baselineItem, effectiveItem));
+        }
+        return new ConnectorPolicyDiffResponse(items);
+    }
+
+    private static ConnectorPolicySnapshotItem toPolicySnapshotItem(String connectorId,
+                                                                    RuntimeConfigStore.RestConnectorConfig connector,
+                                                                    RuntimeConfigStore.RestOutboxConfig global) {
+        RuntimeConfigStore.RetryPolicy retry = connector == null ? null : connector.retryPolicy();
+        RuntimeConfigStore.CircuitBreakerPolicy cb = connector == null ? null : connector.circuitBreaker();
+        int maxAttempts = retry != null && retry.maxAttempts() != null ? retry.maxAttempts() : (global == null ? 10 : global.maxAttempts());
+        int baseDelaySec = retry != null && retry.baseDelaySec() != null ? retry.baseDelaySec() : (global == null ? 5 : global.baseDelaySec());
+        int maxDelaySec = retry != null && retry.maxDelaySec() != null ? retry.maxDelaySec() : (global == null ? 600 : global.maxDelaySec());
+        return new ConnectorPolicySnapshotItem(
+                connectorId,
+                connector == null ? null : connector.baseUrl(),
+                maxAttempts,
+                baseDelaySec,
+                maxDelaySec,
+                20,
+                cb != null && cb.enabled(),
+                cb == null ? null : cb.failureThreshold(),
+                cb == null ? null : cb.openTimeoutSec(),
+                cb == null ? null : cb.halfOpenMaxProbes()
+        );
+    }
     @Serdeable
     @Schema(name = "RuntimeConfigResponse", description = "Текущая runtime-конфигурация")
     record RuntimeConfigResponse(
@@ -211,11 +273,37 @@ public class RuntimeConfigAdminController {
     ) {
     }
 
+    @Serdeable
+    @Schema(name = "RuntimeConfigExportResponse", description = "Экспорт effective runtime-конфигурации")
+    record RuntimeConfigExportResponse(
+            @Schema(description = "Экспортированная конфигурация") RuntimeConfigStore.RuntimeConfig config,
+            @Schema(description = "Применена ли маскировка секретов") boolean redacted,
+            @Schema(description = "Revision effective-конфигурации") String revision
+    ) {
+    }
+
 
     @Serdeable
     @Schema(name = "ConnectorPolicySnapshotResponse", description = "Effective snapshot retry/jitter/circuit-breaker по коннекторам")
     record ConnectorPolicySnapshotResponse(
             @Schema(description = "Список effective политик") List<ConnectorPolicySnapshotItem> items
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "ConnectorPolicyDiffResponse", description = "Diff политик effective vs baseline по REST-коннекторам")
+    record ConnectorPolicyDiffResponse(
+            @Schema(description = "Список отличий по коннекторам") List<ConnectorPolicyDiffItem> items
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "ConnectorPolicyDiffItem", description = "Изменения политики конкретного REST-коннектора")
+    record ConnectorPolicyDiffItem(
+            @Schema(description = "Идентификатор коннектора") String connectorId,
+            @Schema(description = "Есть ли изменение относительно baseline") boolean changed,
+            @Schema(description = "Политика baseline") ConnectorPolicySnapshotItem baseline,
+            @Schema(description = "Эффективная политика runtime") ConnectorPolicySnapshotItem effective
     ) {
     }
 

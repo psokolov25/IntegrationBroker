@@ -63,4 +63,28 @@ class CrmClientsTest {
         assertEquals(Boolean.TRUE, out.raw().get("fallback"));
     }
 
+
+    @Test
+    void vendorFallback_shouldStayDeterministicForSameInput() {
+        CrmClients.Bitrix24CrmClient client = new CrmClients.Bitrix24CrmClient();
+
+        CrmModels.FindCustomerRequest req = new CrmModels.FindCustomerRequest(
+                java.util.List.of(new CrmModels.LookupKey("phone", "+79990000001", Map.of())),
+                Map.of(),
+                CrmModels.ResolvePolicy.defaultPolicy()
+        );
+
+        CrmModels.CrmOutcome<CrmModels.CustomerCard> first = client.findCustomer(null, req, Map.of());
+        CrmModels.CrmOutcome<CrmModels.CustomerCard> second = client.findCustomer(null, req, Map.of());
+
+        assertTrue(first.success());
+        assertTrue(second.success());
+        assertNotNull(first.result());
+        assertNotNull(second.result());
+        assertEquals(first.result().crmCustomerId(), second.result().crmCustomerId());
+        assertEquals(first.raw().get("requestedProfile"), second.raw().get("requestedProfile"));
+        assertEquals(first.raw().get("executionProfile"), second.raw().get("executionProfile"));
+        assertEquals(first.raw().get("fallback"), second.raw().get("fallback"));
+    }
+
 }

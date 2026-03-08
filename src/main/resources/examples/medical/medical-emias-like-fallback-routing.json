@@ -1,0 +1,18 @@
+{
+  "type": "medical.routingContext",
+  "meta": {
+    "correlationId": "med-fallback-001",
+    "sourceMessageId": "ext-med-1"
+  },
+  "payload": {
+    "requestedProfile": "EMIAS_LIKE",
+    "executionProfile": "FHIR_GENERIC",
+    "fallback": true,
+    "patient": {
+      "snils": "112-233-445 95"
+    },
+    "context": {
+      "branchId": "branch-01"
+    }
+  }
+}

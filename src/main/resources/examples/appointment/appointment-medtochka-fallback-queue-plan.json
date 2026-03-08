@@ -1,0 +1,15 @@
+{
+  "type": "appointment.queuePlan",
+  "meta": {
+    "correlationId": "appt-fallback-001",
+    "sourceMessageId": "ext-appt-1"
+  },
+  "payload": {
+    "requestedProfile": "MEDTOCHKA_LIKE",
+    "executionProfile": "GENERIC",
+    "fallback": true,
+    "clinicId": "clinic-77",
+    "specialty": "therapist",
+    "date": "2026-03-01"
+  }
+}

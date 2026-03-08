@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ru.aritmos.integrationbroker.model.InboundEnvelope;
 
 import javax.sql.DataSource;
@@ -36,6 +38,8 @@ import java.util.Objects;
  */
 @Singleton
 public class InboundDlqService {
+
+    private static final Logger log = LoggerFactory.getLogger(InboundDlqService.class);
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
@@ -243,7 +247,9 @@ public class InboundDlqService {
         if (full == null) {
             return null;
         }
-        String raw = toJsonSafe(full.payload());
+        Object payloadForPreview = full.payload() == null ? null : objectMapper.convertValue(full.payload(), Object.class);
+        Object sanitizedPayload = SensitiveDataSanitizer.sanitizeStructuredData(payloadForPreview);
+        String raw = toJsonSafe(sanitizedPayload);
         String sanitized = SensitiveDataSanitizer.sanitizeText(raw);
         if (sanitized == null) {
             return null;
@@ -256,7 +262,7 @@ public class InboundDlqService {
 
     public int markIgnoredBatch(String status, String type, String source, String branchId, int limit, String reason) {
         int lim = Math.min(Math.max(1, limit), 200);
-        List<DlqRecord> records = list(status, type, source, branchId, lim);
+        List<DlqRecord> records = list(status, type, source, branchId, null, lim);
         int changed = 0;
         String msg = safeShort(reason == null ? "ignored by admin" : reason, 800);
         Instant now = Instant.now();
@@ -281,34 +287,118 @@ public class InboundDlqService {
         }
         return changed;
     }
+
+
+    public int requeueIgnoredBatch(String type, String source, String branchId, String ignoredReason, int limit, String reason) {
+        int lim = Math.min(Math.max(1, limit), 200);
+        List<DlqRecord> records = list(Status.DEAD.name(), type, source, branchId, ignoredReason, lim);
+        int changed = 0;
+        Instant now = Instant.now();
+        for (DlqRecord rec : records) {
+            if (!Status.DEAD.name().equals(rec.status()) || !"IGNORED_BY_ADMIN".equals(rec.errorCode())) {
+                continue;
+            }
+            try (Connection c = dataSource.getConnection();
+                 PreparedStatement ps = c.prepareStatement(
+                         "UPDATE ib_inbound_dlq SET status=?, updated_at=?, error_code=?, error_message=?, last_error_at=?, replayed_at=NULL WHERE id=?")) {
+                ps.setString(1, Status.PENDING.name());
+                ps.setTimestamp(2, Timestamp.from(now));
+                ps.setString(3, "REQUEUED_BY_ADMIN");
+                ps.setString(4, safeShort(reason == null ? "requeued ignored by admin" : reason, 800));
+                ps.setTimestamp(5, Timestamp.from(now));
+                ps.setLong(6, rec.id());
+                changed += ps.executeUpdate();
+            } catch (Exception ignore) {
+                // no-op
+            }
+        }
+        return changed;
+    }
+
+
+
+    public int autoIgnoreKnownNonRetriable(int limit, String reason) {
+        int lim = Math.min(Math.max(1, limit), 200);
+        List<DlqRecord> records = list(Status.PENDING.name(), null, null, null, null, lim);
+        int changed = 0;
+        Instant now = Instant.now();
+        String msg = safeShort(reason == null ? "auto-ignored known non-retriable" : reason, 800);
+        for (DlqRecord rec : records) {
+            if (!Status.PENDING.name().equals(rec.status())) {
+                continue;
+            }
+            if (!isKnownNonRetriable(rec.errorCode(), rec.errorMessage())) {
+                continue;
+            }
+            try (Connection c = dataSource.getConnection();
+                 PreparedStatement ps = c.prepareStatement(
+                         "UPDATE ib_inbound_dlq SET status=?, updated_at=?, last_error_at=?, error_code=?, error_message=? WHERE id=?")) {
+                ps.setString(1, Status.DEAD.name());
+                ps.setTimestamp(2, Timestamp.from(now));
+                ps.setTimestamp(3, Timestamp.from(now));
+                ps.setString(4, "IGNORED_AUTO_NON_RETRIABLE");
+                ps.setString(5, msg);
+                ps.setLong(6, rec.id());
+                changed += ps.executeUpdate();
+            } catch (Exception ignore) {
+                // no-op
+            }
+        }
+        return changed;
+    }
+
+    private static boolean isKnownNonRetriable(String errorCode, String errorMessage) {
+        String code = errorCode == null ? "" : errorCode.trim().toUpperCase(java.util.Locale.ROOT);
+        if (code.equals("VALIDATION_ERROR") || code.equals("BAD_REQUEST") || code.equals("NOT_FOUND") || code.equals("FORBIDDEN") || code.equals("UNAUTHORIZED")) {
+            return true;
+        }
+        String msg = errorMessage == null ? "" : errorMessage.toLowerCase(java.util.Locale.ROOT);
+        return msg.contains("validation") || msg.contains("invalid") || msg.contains("not found") || msg.contains("forbidden") || msg.contains("unauthorized");
+    }
+
     /**
      * Список DLQ.
      */
     public List<DlqRecord> list(String status, int limit) {
-        return list(status, null, null, null, limit);
+        return list(status, null, null, null, null, null, limit);
+    }
+
+    public List<DlqRecord> list(String status, String type, String source, String branchId, int limit) {
+        return list(status, type, source, branchId, null, null, limit);
     }
 
     /**
      * Список DLQ с фильтрацией для batch replay.
-     * <p>
-     * Фильтры:
-     * <ul>
-     *   <li>status — статус записи (PENDING/REPLAYED/DEAD);</li>
-     *   <li>type — тип входящего сообщения;</li>
-     *   <li>branchId — отделение;</li>
-     *   <li>source — источник из sourceMeta (source/sourceSystem/system).</li>
-     * </ul>
      */
-    public List<DlqRecord> list(String status, String type, String source, String branchId, int limit) {
+    public List<DlqRecord> list(String status, String type, String source, String branchId, String ignoredReason, int limit) {
+        return list(status, type, source, branchId, ignoredReason, null, limit);
+    }
+
+    public List<DlqRecord> list(String status,
+                                String type,
+                                String source,
+                                String branchId,
+                                String ignoredReason,
+                                String correlationId,
+                                int limit) {
+        String normalizedStatus = normalizeFilter(status);
+        String normalizedType = normalizeFilter(type);
+        String normalizedSource = normalizeFilter(source);
+        String normalizedBranchId = normalizeFilter(branchId);
+        String normalizedIgnoredReason = normalizeFilter(ignoredReason);
+        String normalizedCorrelationId = normalizeFilter(correlationId);
+
         int lim = Math.min(Math.max(1, limit), 200);
-        boolean filter = status != null && !status.isBlank();
-        boolean filterType = type != null && !type.isBlank();
-        boolean filterBranch = branchId != null && !branchId.isBlank();
-        boolean filterSource = source != null && !source.isBlank();
+        boolean filterStatus = normalizedStatus != null;
+        boolean filterType = normalizedType != null;
+        boolean filterBranch = normalizedBranchId != null;
+        boolean filterSource = normalizedSource != null;
+        boolean filterIgnoredReason = normalizedIgnoredReason != null;
+        boolean filterCorrelation = normalizedCorrelationId != null;
 
         StringBuilder sql = new StringBuilder("SELECT id, status, created_at, updated_at, kind, type, message_id, correlation_id, branch_id, user_id, idem_key, attempts, max_attempts, last_error_at, error_code, error_message, replayed_at, source_meta_json FROM ib_inbound_dlq");
         List<String> conditions = new ArrayList<>();
-        if (filter) {
+        if (filterStatus) {
             conditions.add("status=?");
         }
         if (filterType) {
@@ -316,6 +406,9 @@ public class InboundDlqService {
         }
         if (filterBranch) {
             conditions.add("branch_id=?");
+        }
+        if (filterCorrelation) {
+            conditions.add("correlation_id=?");
         }
         if (!conditions.isEmpty()) {
             sql.append(" WHERE ").append(String.join(" AND ", conditions));
@@ -327,14 +420,17 @@ public class InboundDlqService {
              PreparedStatement ps = c.prepareStatement(sql.toString())) {
 
             int idx = 1;
-            if (filter) {
-                ps.setString(idx++, status);
+            if (filterStatus) {
+                ps.setString(idx++, normalizedStatus);
             }
             if (filterType) {
-                ps.setString(idx++, type);
+                ps.setString(idx++, normalizedType);
             }
             if (filterBranch) {
-                ps.setString(idx++, branchId);
+                ps.setString(idx++, normalizedBranchId);
+            }
+            if (filterCorrelation) {
+                ps.setString(idx++, normalizedCorrelationId);
             }
             ps.setInt(idx, lim);
 
@@ -347,7 +443,7 @@ public class InboundDlqService {
                     String kind = rs.getString(5);
                     String recType = rs.getString(6);
                     String messageId = rs.getString(7);
-                    String correlationId = rs.getString(8);
+                    String recCorrelationId = rs.getString(8);
                     String recBranchId = rs.getString(9);
                     String userId = rs.getString(10);
                     String idemKey = rs.getString(11);
@@ -359,8 +455,15 @@ public class InboundDlqService {
                     Timestamp replayedAt = rs.getTimestamp(17);
                     String sourceMetaJson = rs.getString(18);
 
-                    if (filterSource && !Objects.equals(source, extractSource(sourceMetaJson))) {
+                    if (filterSource && !Objects.equals(normalizedSource, extractSource(sourceMetaJson))) {
                         continue;
+                    }
+                    if (filterIgnoredReason) {
+                        boolean ignoredByAdmin = "IGNORED_BY_ADMIN".equals(errorCode);
+                        String msg = errorMessage == null ? "" : errorMessage;
+                        if (!ignoredByAdmin || !msg.toLowerCase(java.util.Locale.ROOT).contains(normalizedIgnoredReason.toLowerCase(java.util.Locale.ROOT))) {
+                            continue;
+                        }
                     }
 
                     out.add(new DlqRecord(
@@ -368,7 +471,7 @@ public class InboundDlqService {
                             createdAt == null ? null : createdAt.toInstant().toString(),
                             updatedAt == null ? null : updatedAt.toInstant().toString(),
                             kind, recType,
-                            messageId, correlationId,
+                            messageId, recCorrelationId,
                             recBranchId, userId,
                             idemKey,
                             attempts, maxAttempts,
@@ -379,10 +482,18 @@ public class InboundDlqService {
                 }
             }
         } catch (Exception e) {
-            return List.of();
+            log.warn("DLQ list query failed: status={}, type={}, source={}, branchId={}, ignoredReason={}, correlationId={}, limit={}",
+                    normalizedStatus, normalizedType, normalizedSource, normalizedBranchId, normalizedIgnoredReason, normalizedCorrelationId, lim, e);
         }
-
         return out;
+    }
+
+    private static String normalizeFilter(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private String extractSource(String sourceMetaJson) {
