@@ -1,0 +1,20 @@
+{
+  "type": "crm.syncAndCase",
+  "meta": {
+    "correlationId": "crm-fallback-001",
+    "sourceMessageId": "ext-crm-1"
+  },
+  "payload": {
+    "requestedProfile": "BITRIX24",
+    "executionProfile": "GENERIC",
+    "fallback": true,
+    "customer": {
+      "phone": "+79990000001",
+      "name": "Иван"
+    },
+    "case": {
+      "title": "Обратный звонок",
+      "channel": "queue"
+    }
+  }
+}

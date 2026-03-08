@@ -116,3 +116,25 @@ return output
 - Для надёжности используйте **REST outbox** для внешних вызовов (если адаптер делает внешние REST-запросы).
 - Для закрытых контуров используйте service-to-service авторизацию через `restConnectors`.
 - Не храните изображения/сканы документов в IB дольше необходимого, не кладите их в DLQ/outbox.
+
+## Prerelease fallback-профили и риски
+
+В prerelease медицинские профили `EMIAS_LIKE` и `MEDESK_LIKE` исполняются через `FHIR_GENERIC`.
+
+Что контролировать в рантайме:
+
+- поля `requestedProfile`/`executionProfile`/`fallback` в diagnostic details;
+- корректность enrichment-блока `details` (источник профиля и причины fallback);
+- стабильность маппинга patient/upcoming-services при одинаковом входном payload.
+
+Ключевые риски fallback-режима:
+
+1. Различия в терминологии доменной модели конкретной МИС (часть полей попадёт в `raw`).
+2. Неполная семантика статусов визитов/эпизодов до включения нативного коннектора.
+3. Ошибочная интерпретация fallback как production-ready parity.
+
+Минимальный mitigation:
+
+- keep-alive smoke тесты на 3 сценария: happy-path, empty-result, retryable-error;
+- обязательный dry-run перед rollout изменения профиля;
+- replay только идемпотентных операций в период стабилизации.

@@ -60,6 +60,7 @@ public class RuntimeConfigStore {
     private final String remotePath;
 
     private final AtomicReference<RuntimeConfig> effective = new AtomicReference<>();
+    private final AtomicReference<RuntimeConfig> baseline = new AtomicReference<>();
     private volatile String lastEtag;
     private final Deque<RuntimeConfigAuditEntry> auditTrail = new ArrayDeque<>();
 
@@ -86,6 +87,7 @@ public class RuntimeConfigStore {
     @PostConstruct
     void init() {
         RuntimeConfig local = loadLocal();
+        baseline.set(local);
         effective.set(local);
         appendAudit("system", "LOCAL_INIT", null, local, "Загружен baseline из local-config");
         if (remoteEnabled) {
@@ -149,6 +151,14 @@ public class RuntimeConfigStore {
     }
 
     /**
+     * @return baseline-конфигурация (локальная), загруженная на старте
+     */
+    public RuntimeConfig getBaseline() {
+        RuntimeConfig cfg = baseline.get();
+        return cfg == null ? getEffective() : cfg;
+    }
+
+    /**
      * @return включён ли режим удалённой конфигурации (SystemConfiguration)
      */
     public boolean isRemoteEnabled() {
@@ -190,7 +200,9 @@ public class RuntimeConfigStore {
                 DataBusIntegrationConfig.disabled()
         ) : candidate).normalize();
 
-        List<String> errors = validateAppointmentCustomOperations(normalized);
+        List<String> errors = new ArrayList<>();
+        errors.addAll(validateAppointmentCustomOperations(normalized));
+        errors.addAll(validateSubprofiles(normalized));
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join("; ", errors));
         }
@@ -486,6 +498,38 @@ public class RuntimeConfigStore {
         }
         return warnings;
     }
+
+
+    public static List<String> validateSubprofiles(RuntimeConfig cfg) {
+        List<String> errors = new ArrayList<>();
+        if (cfg == null) {
+            return errors;
+        }
+        MedicalConfig medical = cfg.medical();
+        if (medical != null && medical.enabled()) {
+            if (medical.connectorId() == null || medical.connectorId().isBlank()) {
+                errors.add("medical: для enabled=true требуется непустой connectorId");
+            }
+            if (medical.settings() == null) {
+                errors.add("medical: settings не должны быть null");
+            }
+        }
+        AppointmentConfig appointment = cfg.appointment();
+        if (appointment != null && appointment.enabled()) {
+            if (appointment.connectorId() == null || appointment.connectorId().isBlank()) {
+                errors.add("appointment: для enabled=true требуется непустой connectorId");
+            }
+            if (appointment.profile() == AppointmentProfile.CUSTOM_CONNECTOR) {
+                Map<String, Object> customClient = appointment.settings() == null ? Map.of() : toStringObjectMap(appointment.settings().get("customClient"));
+                Map<String, Object> operations = toStringObjectMap(customClient.get("operations"));
+                if (operations.isEmpty()) {
+                    errors.add("appointment.customClient.operations: для CUSTOM_CONNECTOR требуется минимум одна операция");
+                }
+            }
+        }
+        return errors;
+    }
+
     private static Map<String, Object> toStringObjectMap(Object value) {
         if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
             return Map.of();

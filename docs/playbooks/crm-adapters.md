@@ -114,3 +114,19 @@ return output
 - Отсутствует логирование секретов и токенов
 - Добавлены примеры (`src/main/resources/examples/crm/*`)
 - Добавлен/обновлён playbook
+
+## 7. Prerelease fallback-поведение (пакет 05)
+
+В prerelease-стадии профили `BITRIX24`/`AMOCRM`/`RETAILCRM`/`MEGAPLAN` выполняются через `GENERIC` клиент.
+
+Практические правила:
+
+- в диагностику и `raw`-блок результата добавляются поля `requestedProfile`, `executionProfile`, `fallback`;
+- `executionProfile` должен быть `GENERIC` до включения реального коннектора;
+- при анализе инцидентов фильтруйте по `correlationId`, затем проверяйте признак `fallback=true`.
+
+Рекомендации эксплуатации:
+
+1. Считать fallback штатным режимом prerelease, а не ошибкой.
+2. Не менять Groovy-оркестрацию при включённом fallback, менять только runtime-config.
+3. Перед включением real-коннектора прогонять dry-run + smoke на кейсах `findCustomer` и `createServiceCase`.

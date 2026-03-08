@@ -83,4 +83,28 @@ class MedicalClientsTest {
         assertEquals(Boolean.TRUE, out.details().get("fallback"));
     }
 
+
+    @Test
+    void delegatedFallback_shouldStayDeterministicForSameInput() {
+        MedicalClients clients = new MedicalClients(null);
+        MedicalClient delegated = clients.emiasLike();
+
+        MedicalModels.GetPatientRequest req = new MedicalModels.GetPatientRequest(
+                List.of(new MedicalModels.PatientKey("clientId", "C-77")),
+                Map.of()
+        );
+
+        MedicalModels.MedicalOutcome<MedicalModels.Patient> first = delegated.getPatient(req, Map.of());
+        MedicalModels.MedicalOutcome<MedicalModels.Patient> second = delegated.getPatient(req, Map.of());
+
+        assertTrue(first.success());
+        assertTrue(second.success());
+        assertNotNull(first.result());
+        assertNotNull(second.result());
+        assertEquals(first.result().patientId(), second.result().patientId());
+        assertEquals(first.details().get("requestedProfile"), second.details().get("requestedProfile"));
+        assertEquals(first.details().get("executionProfile"), second.details().get("executionProfile"));
+        assertEquals(first.details().get("fallback"), second.details().get("fallback"));
+    }
+
 }

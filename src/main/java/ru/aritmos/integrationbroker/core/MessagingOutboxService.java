@@ -215,18 +215,38 @@ public class MessagingOutboxService {
      * Список (без payload).
      */
     public List<OutboxListItem> list(String status, int limit) {
-        int lim = Math.min(Math.max(1, limit), 200);
-        List<OutboxListItem> out = new ArrayList<>();
+        return list(status, null, limit);
+    }
 
-        String sql = (status == null || status.isBlank())
-                ? "SELECT id, status, provider, destination, attempts, max_attempts, next_attempt_at, updated_at FROM ib_messaging_outbox ORDER BY updated_at DESC LIMIT ?"
-                : "SELECT id, status, provider, destination, attempts, max_attempts, next_attempt_at, updated_at FROM ib_messaging_outbox WHERE status=? ORDER BY updated_at DESC LIMIT ?";
+    public List<OutboxListItem> list(String status, String correlationId, int limit) {
+        int lim = Math.min(Math.max(1, limit), 200);
+        String normalizedStatus = normalizeFilter(status);
+        String normalizedCorrelation = normalizeFilter(correlationId);
+        boolean filterStatus = normalizedStatus != null;
+        boolean filterCorrelation = normalizedCorrelation != null;
+
+        List<OutboxListItem> out = new ArrayList<>();
+        StringBuilder sql = new StringBuilder("SELECT id, status, provider, destination, attempts, max_attempts, next_attempt_at, updated_at FROM ib_messaging_outbox");
+        List<String> conditions = new ArrayList<>();
+        if (filterStatus) {
+            conditions.add("status=?");
+        }
+        if (filterCorrelation) {
+            conditions.add("correlation_id=?");
+        }
+        if (!conditions.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", conditions));
+        }
+        sql.append(" ORDER BY updated_at DESC LIMIT ?");
 
         try (Connection c = dataSource.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
+             PreparedStatement ps = c.prepareStatement(sql.toString())) {
             int idx = 1;
-            if (status != null && !status.isBlank()) {
-                ps.setString(idx++, status);
+            if (filterStatus) {
+                ps.setString(idx++, normalizedStatus);
+            }
+            if (filterCorrelation) {
+                ps.setString(idx++, normalizedCorrelation);
             }
             ps.setInt(idx, lim);
             try (ResultSet rs = ps.executeQuery()) {
@@ -247,6 +267,19 @@ public class MessagingOutboxService {
             // no-op
         }
         return out;
+    }
+
+
+    public List<OutboxListItem> listByCorrelation(String correlationId, int limit) {
+        return list(null, correlationId, limit);
+    }
+
+    private static String normalizeFilter(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**
@@ -359,6 +392,71 @@ public class MessagingOutboxService {
             return ps.executeUpdate() == 1;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    /**
+     * Переотправка набора записей по correlationId.
+     *
+     * @param correlationId correlationId для выборки
+     * @param limit максимум записей (1..200)
+     * @param resetAttempts сбросить attempts в 0
+     * @param dryRun если true — только посчитать кандидаты
+     * @return количество найденных (dryRun) или обновлённых записей
+     */
+    public int replayByCorrelation(String correlationId, int limit, boolean resetAttempts, boolean dryRun) {
+        return replayByCorrelation(correlationId, limit, resetAttempts, dryRun, false, null);
+    }
+
+    public int replayByCorrelation(String correlationId, int limit, boolean resetAttempts, boolean dryRun, boolean suppressPublish, String suppressReason) {
+        if (correlationId == null || correlationId.isBlank()) {
+            return 0;
+        }
+        int lim = Math.min(Math.max(1, limit), 200);
+        String cid = safeShort(correlationId, 128, null);
+        if (cid == null || cid.isBlank()) {
+            return 0;
+        }
+        if (dryRun) {
+            return countReplayCandidates(cid, lim);
+        }
+        Instant now = Instant.now();
+        String targetStatus = suppressPublish ? Status.SENT.name() : Status.PENDING.name();
+        String suppressCode = suppressPublish ? "SUPPRESS_PUBLISH" : null;
+        String suppressMsg = suppressPublish ? safeShort(suppressReason == null ? "suppressed by admin replay" : suppressReason, 1000, "suppressed by admin replay") : null;
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE ib_messaging_outbox SET status=?, updated_at=?, next_attempt_at=?, attempts=CASE WHEN ? THEN 0 ELSE attempts END, " +
+                             "last_error_at=?, last_error_code=?, last_error_message=? " +
+                             "WHERE id IN (SELECT id FROM ib_messaging_outbox WHERE correlation_id=? AND status<>? ORDER BY updated_at DESC LIMIT ?)")) {
+            ps.setString(1, targetStatus);
+            ps.setTimestamp(2, Timestamp.from(now));
+            ps.setTimestamp(3, Timestamp.from(now));
+            ps.setBoolean(4, resetAttempts);
+            ps.setTimestamp(5, suppressPublish ? Timestamp.from(now) : null);
+            ps.setString(6, suppressCode);
+            ps.setString(7, suppressMsg);
+            ps.setString(8, cid);
+            ps.setString(9, Status.SENDING.name());
+            ps.setInt(10, lim);
+            return ps.executeUpdate();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private int countReplayCandidates(String correlationId, int limit) {
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT COUNT(1) FROM (SELECT id FROM ib_messaging_outbox WHERE correlation_id=? AND status<>? ORDER BY updated_at DESC LIMIT ?) t")) {
+            ps.setString(1, correlationId);
+            ps.setString(2, Status.SENDING.name());
+            ps.setInt(3, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (Exception e) {
+            return 0;
         }
     }
 

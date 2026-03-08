@@ -415,10 +415,30 @@ class AdminIdempotencyController {
     @ApiResponse(responseCode = "200", description = "Экспорт сформирован", content = @Content(schema = @Schema(implementation = IdempotencyAuditExportResponse.class)))
     public IdempotencyAuditExportResponse exportAudit(
             @Parameter(description = "Фильтр статуса (IN_PROGRESS/COMPLETED/FAILED)") String status,
+            @Parameter(description = "Фильтр skippedReason (DUPLICATE/LOCKED/EXPIRED)") String skippedReason,
             @Parameter(description = "Лимит (1..200)") Integer limit) {
         int lim = (limit == null) ? 100 : limit;
-        List<IdempotencyService.IdempotencyRecord> items = idempotencyService.list(status, lim);
-        return new IdempotencyAuditExportResponse(java.time.Instant.now().toString(), status, lim, items.size(), items);
+        String normalizedSkippedReason = skippedReason == null ? null : skippedReason.trim();
+        if (normalizedSkippedReason != null && normalizedSkippedReason.isBlank()) {
+            normalizedSkippedReason = null;
+        }
+        List<IdempotencyService.IdempotencyRecord> items = idempotencyService.list(status, normalizedSkippedReason, lim);
+        return new IdempotencyAuditExportResponse(java.time.Instant.now().toString(), status, normalizedSkippedReason, lim, items.size(), items);
+    }
+
+
+    @Get(uri = "/conflicts/by-source")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Доля duplicate/locked конфликтов по источникам",
+            description = "Возвращает метрику доли конфликтов duplicate+locked по source/sourceSystem/system для оперативной диагностики."
+    )
+    @ApiResponse(responseCode = "200", description = "Метрика сформирована", content = @Content(schema = @Schema(implementation = IdempotencyConflictShareResponse.class)))
+    public IdempotencyConflictShareResponse conflictsBySource(
+            @Parameter(description = "Лимит источников (1..200)") Integer limit) {
+        int lim = (limit == null) ? 50 : limit;
+        List<IdempotencyService.SourceConflictShare> items = idempotencyService.conflictSharePerSource(lim);
+        return new IdempotencyConflictShareResponse(java.time.Instant.now().toString(), items.size(), items);
     }
     @Get
     @Produces(MediaType.APPLICATION_JSON)
@@ -429,10 +449,11 @@ class AdminIdempotencyController {
     @ApiResponse(responseCode = "200", description = "Список", content = @Content(schema = @Schema(implementation = IdempotencyListResponse.class)))
     public IdempotencyListResponse list(
             @Parameter(description = "Фильтр статуса (IN_PROGRESS/COMPLETED/FAILED)") String status,
+            @Parameter(description = "Фильтр skippedReason (DUPLICATE/LOCKED/EXPIRED)") String skippedReason,
             @Parameter(description = "Лимит (1..200)") Integer limit) {
 
         int lim = (limit == null) ? 50 : limit;
-        List<IdempotencyService.IdempotencyRecord> items = idempotencyService.list(status, lim);
+        List<IdempotencyService.IdempotencyRecord> items = idempotencyService.list(status, skippedReason, lim);
         return new IdempotencyListResponse(items);
     }
 
@@ -458,6 +479,47 @@ class AdminIdempotencyController {
         return HttpResponse.ok(new UnlockResponse(true, key, "UNLOCKED"));
     }
 
+
+
+    @Post(uri = "/purge-expired")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Удалить EXPIRED idempotency записи",
+            description = "Удаляет (или в dry-run считает) записи со skipped_reason=EXPIRED по фильтру updatedBefore."
+    )
+    @ApiResponse(responseCode = "200", description = "Операция выполнена", content = @Content(schema = @Schema(implementation = PurgeExpiredResponse.class)))
+    public PurgeExpiredResponse purgeExpired(@Body PurgeExpiredRequest request) {
+        int requested = request == null || request.limit() == null ? 100 : request.limit();
+        int limit = Math.min(Math.max(1, requested), 500);
+        boolean dryRun = request != null && Boolean.TRUE.equals(request.dryRun());
+        java.time.Instant updatedBefore = null;
+        try {
+            if (request != null && request.updatedBefore() != null && !request.updatedBefore().isBlank()) {
+                updatedBefore = java.time.Instant.parse(request.updatedBefore());
+            }
+        } catch (Exception ignore) {
+            updatedBefore = java.time.Instant.now();
+        }
+        int affected = idempotencyService.purgeExpired(updatedBefore, limit, dryRun);
+        return new PurgeExpiredResponse(requested, limit, dryRun, affected, updatedBefore == null ? null : updatedBefore.toString());
+    }
+
+    @Post(uri = "/unlock-batch")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Batch unlock зависших LOCKED idempotency записей",
+            description = "Выбирает IN_PROGRESS с lock_until < now и выполняет ручную разморозку. Поддерживается dry-run."
+    )
+    @ApiResponse(responseCode = "200", description = "Операция выполнена", content = @Content(schema = @Schema(implementation = BatchUnlockResponse.class)))
+    public BatchUnlockResponse unlockBatch(@Body BatchUnlockRequest request) {
+        int requested = request == null || request.limit() == null ? 100 : request.limit();
+        int limit = Math.min(Math.max(1, requested), 500);
+        boolean dryRun = request != null && Boolean.TRUE.equals(request.dryRun());
+        String actor = request == null ? null : request.actor();
+        String reason = request == null ? null : request.reason();
+        IdempotencyService.BatchUnlockResult res = idempotencyService.unlockBatch(limit, dryRun, actor, reason);
+        return new BatchUnlockResponse(requested, limit, res.selected(), res.unlocked(), res.dryRun());
+    }
     @Serdeable
     @Schema(name = "IdempotencyListResponse", description = "Ответ со списком записей идемпотентности")
     record IdempotencyListResponse(
@@ -473,11 +535,63 @@ class AdminIdempotencyController {
     record IdempotencyAuditExportResponse(
             @Schema(description = "Время формирования экспорта") String exportedAt,
             @Schema(description = "Применённый фильтр статуса") String status,
+            @Schema(description = "Применённый фильтр skippedReason") String skippedReason,
             @Schema(description = "Применённый лимит") int limit,
             @Schema(description = "Количество записей в экспорте") int count,
             @Schema(description = "Записи idempotency") List<IdempotencyService.IdempotencyRecord> items
     ) {
     }
+
+    @Serdeable
+    @Schema(name = "IdempotencyConflictShareResponse", description = "Метрика конфликтов duplicate/locked по источникам")
+    record IdempotencyConflictShareResponse(
+            @Schema(description = "Время формирования") String generatedAt,
+            @Schema(description = "Количество источников в ответе") int count,
+            @Schema(description = "Детализация по источникам") List<IdempotencyService.SourceConflictShare> items
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "IdempotencyPurgeExpiredRequest", description = "Параметры удаления EXPIRED записей идемпотентности")
+    record PurgeExpiredRequest(
+            @Schema(description = "Удалять записи с updated_at < этого времени (ISO-8601)") String updatedBefore,
+            @Schema(description = "Лимит обработки (1..500)") Integer limit,
+            @Schema(description = "Только подсчитать подходящие записи") Boolean dryRun
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "IdempotencyPurgeExpiredResponse", description = "Результат удаления EXPIRED записей")
+    record PurgeExpiredResponse(
+            @Schema(description = "Запрошенный лимит") int requestedLimit,
+            @Schema(description = "Применённый лимит") int appliedLimit,
+            @Schema(description = "Флаг dryRun") boolean dryRun,
+            @Schema(description = "Количество удалённых/подходящих записей") int affected,
+            @Schema(description = "Применённая верхняя граница updatedBefore") String updatedBefore
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "IdempotencyBatchUnlockRequest", description = "Параметры массовой разморозки idempotency")
+    record BatchUnlockRequest(
+            @Schema(description = "Лимит обработки (1..500)") Integer limit,
+            @Schema(description = "Только подсчитать подходящие LOCKED записи") Boolean dryRun,
+            @Schema(description = "Кто выполняет операцию") String actor,
+            @Schema(description = "Причина операции") String reason
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "IdempotencyBatchUnlockResponse", description = "Результат массовой разморозки idempotency")
+    record BatchUnlockResponse(
+            @Schema(description = "Запрошенный лимит") int requestedLimit,
+            @Schema(description = "Применённый лимит") int appliedLimit,
+            @Schema(description = "Найдено зависших записей") int selected,
+            @Schema(description = "Фактически разморожено") int unlocked,
+            @Schema(description = "Флаг dryRun") boolean dryRun
+    ) {
+    }
+
     @Serdeable
     @Schema(name = "IdempotencyUnlockRequest", description = "Запрос на ручную разморозку idempotency-ключа")
     record UnlockRequest(
@@ -559,9 +673,11 @@ class AdminInboundDlqController {
             @Parameter(description = "Фильтр по типу сообщения") String type,
             @Parameter(description = "Фильтр по источнику (source/sourceSystem/system)") String source,
             @Parameter(description = "Фильтр по branchId") String branchId,
+            @Parameter(description = "Фильтр причины ignored (поиск по errorMessage для IGNORED_BY_ADMIN)") String ignoredReason,
+            @Parameter(description = "Фильтр по correlationId") String correlationId,
             @Parameter(description = "Лимит (1..200)") Integer limit) {
         int lim = (limit == null) ? 50 : limit;
-        return new DlqListResponse(inboundDlqService.list(status, type, source, branchId, lim));
+        return new DlqListResponse(inboundDlqService.list(status, type, source, branchId, ignoredReason, correlationId, lim));
     }
 
 
@@ -603,6 +719,22 @@ class AdminInboundDlqController {
         adminOperationsMetrics.recordDlqMarkIgnoredBatch(updated, requested, lim);
         return new DlqMarkIgnoredResponse(updated, requested, lim);
     }
+
+
+    @Post(uri = "/auto-ignore-known-non-retriable")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Авто-ignore известных non-retriable ошибок",
+            description = "Сканирует PENDING DLQ и переводит известные non-retriable ошибки в DEAD с кодом IGNORED_AUTO_NON_RETRIABLE."
+    )
+    @ApiResponse(responseCode = "200", description = "Операция выполнена", content = @Content(schema = @Schema(implementation = DlqAutoIgnoreResponse.class)))
+    public DlqAutoIgnoreResponse autoIgnoreKnownNonRetriable(@Body DlqAutoIgnoreRequest request) {
+        int requested = request == null || request.limit() == null ? 50 : request.limit();
+        int lim = Math.min(Math.max(1, requested), replayBatchLimitMax);
+        String reason = request == null ? null : request.reason();
+        int updated = inboundDlqService.autoIgnoreKnownNonRetriable(lim, reason);
+        return new DlqAutoIgnoreResponse(updated, requested, lim);
+    }
     @Post(uri = "/{id}/replay")
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(
@@ -632,6 +764,27 @@ class AdminInboundDlqController {
         return HttpResponse.ok(response);
     }
 
+
+
+    @Post(uri = "/requeue-ignored-batch")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Вернуть ignored DLQ-записи в очередь",
+            description = "Выбирает DEAD записи с IGNORED_BY_ADMIN и переводит обратно в PENDING. Поддерживает фильтр ignoredReason."
+    )
+    @ApiResponse(responseCode = "200", description = "Операция выполнена", content = @Content(schema = @Schema(implementation = DlqRequeueIgnoredResponse.class)))
+    public DlqRequeueIgnoredResponse requeueIgnoredBatch(@Body DlqRequeueIgnoredRequest request) {
+        String type = request == null ? null : request.type();
+        String source = request == null ? null : request.source();
+        String branchId = request == null ? null : request.branchId();
+        String ignoredReason = request == null ? null : request.ignoredReason();
+        int requested = request == null || request.limit() == null ? 50 : request.limit();
+        int lim = Math.min(Math.max(1, requested), replayBatchLimitMax);
+        String reason = request == null ? null : request.reason();
+        int updated = inboundDlqService.requeueIgnoredBatch(type, source, branchId, ignoredReason, lim, reason);
+        return new DlqRequeueIgnoredResponse(updated, requested, lim, ignoredReason);
+    }
+
     @Post(uri = "/replay-batch")
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(
@@ -649,7 +802,7 @@ class AdminInboundDlqController {
         String source = request == null ? null : request.source();
         String branchId = request == null ? null : request.branchId();
 
-        List<InboundDlqService.DlqRecord> records = inboundDlqService.list(status, type, source, branchId, lim);
+        List<InboundDlqService.DlqRecord> records = inboundDlqService.list(status, type, source, branchId, null, lim);
         List<DlqReplayResponse> items = new ArrayList<>();
         int ok = 0;
         int locked = 0;
@@ -701,7 +854,7 @@ class AdminInboundDlqController {
                 InboundEnvelope.Kind.valueOf(full.record().kind()),
                 full.record().type(),
                 full.payload(),
-                full.headers(),
+                SensitiveDataSanitizer.sanitizeHeadersForAdminProxy(full.headers()),
                 full.record().messageId(),
                 full.record().correlationId(),
                 full.record().branchId(),
@@ -796,6 +949,46 @@ class AdminInboundDlqController {
             @Schema(description = "Применённый лимит") int appliedLimit
     ) {
     }
+
+    @Serdeable
+    @Schema(name = "DlqAutoIgnoreRequest", description = "Параметры авто-ignore известных non-retriable ошибок")
+    record DlqAutoIgnoreRequest(
+            @Schema(description = "Лимит (1..configuredMax)") Integer limit,
+            @Schema(description = "Причина авто-ignore") String reason
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "DlqAutoIgnoreResponse", description = "Результат авто-ignore известных non-retriable ошибок")
+    record DlqAutoIgnoreResponse(
+            @Schema(description = "Количество обновлённых записей") int updated,
+            @Schema(description = "Запрошенный лимит") int requestedLimit,
+            @Schema(description = "Применённый лимит") int appliedLimit
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "DlqRequeueIgnoredRequest", description = "Параметры возврата ignored DLQ-записей в очередь")
+    record DlqRequeueIgnoredRequest(
+            @Schema(description = "Фильтр по type") String type,
+            @Schema(description = "Фильтр по source/sourceSystem/system") String source,
+            @Schema(description = "Фильтр по branchId") String branchId,
+            @Schema(description = "Фильтр причины ignored (поиск по errorMessage)") String ignoredReason,
+            @Schema(description = "Лимит (1..configuredMax)") Integer limit,
+            @Schema(description = "Причина возврата в очередь") String reason
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "DlqRequeueIgnoredResponse", description = "Результат возврата ignored DLQ-записей в очередь")
+    record DlqRequeueIgnoredResponse(
+            @Schema(description = "Количество изменённых записей") int updated,
+            @Schema(description = "Запрошенный лимит") int requestedLimit,
+            @Schema(description = "Применённый лимит") int appliedLimit,
+            @Schema(description = "Применённый фильтр ignoredReason") String ignoredReason
+    ) {
+    }
+
     @Serdeable
     @Schema(name = "DlqReplayBatchRequest", description = "Параметры пакетного replay inbound DLQ")
     record DlqReplayBatchRequest(
@@ -873,9 +1066,10 @@ class AdminMessagingOutboxController {
     @ApiResponse(responseCode = "200", description = "Список", content = @Content(schema = @Schema(implementation = MessagingOutboxListResponse.class)))
     public MessagingOutboxListResponse list(
             @Parameter(description = "Фильтр статуса (PENDING/SENDING/SENT/DEAD)") String status,
+            @Parameter(description = "Фильтр по correlationId") String correlationId,
             @Parameter(description = "Лимит (1..200)") Integer limit) {
         int lim = (limit == null) ? 50 : limit;
-        return new MessagingOutboxListResponse(messagingOutboxService.list(status, lim));
+        return new MessagingOutboxListResponse(messagingOutboxService.list(status, correlationId, lim));
     }
 
     @Post(uri = "/{id}/replay")
@@ -897,6 +1091,30 @@ class AdminMessagingOutboxController {
         return HttpResponse.ok(new OutboxReplayResponse(id, reset, "PENDING"));
     }
 
+    @Post(uri = "/replay-by-correlation")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Batch replay messaging outbox по correlationId",
+            description = "Выбирает записи по correlationId (кроме SENDING) и переводит их в PENDING. Поддерживается dry-run без изменений."
+    )
+    @ApiResponse(responseCode = "200", description = "Операция выполнена", content = @Content(schema = @Schema(implementation = OutboxReplayByCorrelationResponse.class)))
+    public OutboxReplayByCorrelationResponse replayByCorrelation(@Body OutboxReplayByCorrelationRequest request) {
+        String correlationId = request == null ? null : request.correlationId();
+        int requestedLimit = request == null || request.limit() == null ? 50 : request.limit();
+        int appliedLimit = Math.min(Math.max(1, requestedLimit), 200);
+        boolean resetAttempts = request != null && Boolean.TRUE.equals(request.resetAttempts());
+        boolean dryRun = request != null && Boolean.TRUE.equals(request.dryRun());
+        int affected = messagingOutboxService.replayByCorrelation(
+                correlationId,
+                appliedLimit,
+                resetAttempts,
+                dryRun,
+                request != null && Boolean.TRUE.equals(request.suppressPublish()),
+                request == null ? null : request.suppressReason()
+        );
+        return new OutboxReplayByCorrelationResponse(correlationId, requestedLimit, appliedLimit, resetAttempts, dryRun, request != null && Boolean.TRUE.equals(request.suppressPublish()), affected);
+    }
+
     @Serdeable
     @Schema(name = "MessagingOutboxListResponse", description = "Ответ со списком записей messaging outbox (без payload)")
     record MessagingOutboxListResponse(
@@ -910,6 +1128,32 @@ class AdminMessagingOutboxController {
             @Schema(description = "ID записи outbox") long id,
             @Schema(description = "Сброшены ли attempts") boolean resetAttempts,
             @Schema(description = "Статус после операции") String status
+    ) {
+    }
+
+
+    @Serdeable
+    @Schema(name = "OutboxReplayByCorrelationRequest", description = "Параметры replay messaging outbox по correlationId")
+    record OutboxReplayByCorrelationRequest(
+            @Schema(description = "CorrelationId для выборки") String correlationId,
+            @Schema(description = "Лимит (1..200)") Integer limit,
+            @Schema(description = "Сбросить attempts в 0") Boolean resetAttempts,
+            @Schema(description = "Только подсчитать кандидаты без изменения статусов") Boolean dryRun,
+            @Schema(description = "Подавить реальную публикацию и перевести выбранные записи сразу в SENT") Boolean suppressPublish,
+            @Schema(description = "Причина подавления публикации") String suppressReason
+    ) {
+    }
+
+    @Serdeable
+    @Schema(name = "OutboxReplayByCorrelationResponse", description = "Результат replay messaging outbox по correlationId")
+    record OutboxReplayByCorrelationResponse(
+            @Schema(description = "Применённый correlationId") String correlationId,
+            @Schema(description = "Запрошенный лимит") int requestedLimit,
+            @Schema(description = "Применённый лимит") int appliedLimit,
+            @Schema(description = "Флаг resetAttempts") boolean resetAttempts,
+            @Schema(description = "Флаг dryRun") boolean dryRun,
+            @Schema(description = "Флаг suppressPublish") boolean suppressPublish,
+            @Schema(description = "Количество затронутых/подходящих записей") int affected
     ) {
     }
 }
@@ -961,9 +1205,10 @@ class AdminRestOutboxController {
     public RestOutboxListResponse list(
             @Parameter(description = "Фильтр статуса (PENDING/SENDING/SENT/DEAD)") String status,
             @Parameter(description = "Фильтр connectorId (опционально)") String connectorId,
+            @Parameter(description = "Фильтр по correlationId") String correlationId,
             @Parameter(description = "Лимит (1..200)") Integer limit) {
         int lim = (limit == null) ? 50 : limit;
-        return new RestOutboxListResponse(restOutboxService.list(status, connectorId, lim));
+        return new RestOutboxListResponse(restOutboxService.list(status, connectorId, correlationId, lim));
     }
 
     @Post(uri = "/{id}/replay")
@@ -986,6 +1231,42 @@ class AdminRestOutboxController {
     }
 
 
+    @Post(uri = "/{id}/priority-bump")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Повысить приоритет queued REST outbox записи",
+            description = "Сдвигает next_attempt_at назад, переводит в PENDING и ускоряет отправку. Для SENDING запись не меняется."
+    )
+    @ApiResponse(responseCode = "200", description = "Приоритет повышен", content = @Content(schema = @Schema(implementation = RestOutboxPriorityBumpResponse.class)))
+    @ApiResponse(responseCode = "404", description = "Запись не найдена или не может быть изменена")
+    public HttpResponse<RestOutboxPriorityBumpResponse> priorityBump(
+            @Parameter(description = "ID записи REST outbox") @PathVariable("id") long id,
+            @Parameter(description = "На сколько секунд сдвинуть next_attempt_at назад (1..3600)") Integer shiftSeconds) {
+        boolean ok = restOutboxService.priorityBump(id, shiftSeconds);
+        if (!ok) {
+            return HttpResponse.notFound();
+        }
+        int shift = shiftSeconds == null ? 60 : Math.min(Math.max(1, shiftSeconds), 3600);
+        return HttpResponse.ok(new RestOutboxPriorityBumpResponse(id, shift, true));
+    }
+
+    @Get(uri = "/{id}/dedup-fingerprint")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(
+            summary = "Preview dedup fingerprint для REST outbox записи",
+            description = "Возвращает SHA-256 fingerprint по ключевым полям запроса для диагностики дедупликации."
+    )
+    @ApiResponse(responseCode = "200", description = "Fingerprint сформирован", content = @Content(schema = @Schema(implementation = RestOutboxService.DedupFingerprintPreview.class)))
+    @ApiResponse(responseCode = "404", description = "Запись не найдена")
+    public HttpResponse<RestOutboxService.DedupFingerprintPreview> dedupFingerprint(@PathVariable("id") long id) {
+        RestOutboxService.DedupFingerprintPreview preview = restOutboxService.dedupFingerprintPreview(id);
+        if (preview == null) {
+            return HttpResponse.notFound();
+        }
+        return HttpResponse.ok(preview);
+    }
+
+
 
     @Post(uri = "/cancel-batch")
     @Produces(MediaType.APPLICATION_JSON)
@@ -1004,6 +1285,15 @@ class AdminRestOutboxController {
         adminOperationsMetrics.recordRestCancelBatch(cancelled, requested, lim);
         return new RestOutboxCancelBatchResponse(cancelled, requested, lim, connectorId, pathPrefix);
     }
+    @Serdeable
+    @Schema(name = "RestOutboxPriorityBumpResponse", description = "Результат повышения приоритета REST outbox записи")
+    record RestOutboxPriorityBumpResponse(
+            @Schema(description = "ID записи") long id,
+            @Schema(description = "Фактический сдвиг в секундах") int shiftSeconds,
+            @Schema(description = "Флаг успеха") boolean bumped
+    ) {
+    }
+
     @Serdeable
     @Schema(name = "RestOutboxListResponse", description = "Ответ со списком записей REST outbox (без body)")
     record RestOutboxListResponse(

@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Сервис идемпотентности Integration Broker.
@@ -48,6 +50,9 @@ public class IdempotencyService {
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
+    private final ConcurrentHashMap<String, LongAdder> decisionsBySource = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LongAdder> duplicateBySource = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LongAdder> lockedBySource = new ConcurrentHashMap<>();
 
     public IdempotencyService(DataSource dataSource, ObjectMapper objectMapper) {
         this.dataSource = dataSource;
@@ -105,6 +110,9 @@ public class IdempotencyService {
 
         validateProvidedIdempotencyKey(envelope);
 
+        String source = resolveSource(envelope);
+        recordDecision(decisionsBySource, source);
+
         String idemKey = computeKey(envelope, config.strategy());
         Instant now = Instant.now();
         Instant lockUntil = now.plusSeconds(Math.max(1, config.lockTtlSec()));
@@ -124,11 +132,13 @@ public class IdempotencyService {
 
         if (row.status == Status.COMPLETED) {
             markSkippedReason(idemKey, SkippedReason.DUPLICATE, now);
+            recordDecision(duplicateBySource, source);
             return new IdempotencyDecision(idemKey, Decision.SKIP_COMPLETED, row.resultJson, SkippedReason.DUPLICATE);
         }
 
         if (row.status == Status.IN_PROGRESS && row.lockUntil != null && row.lockUntil.isAfter(now)) {
             markSkippedReason(idemKey, SkippedReason.LOCKED, now);
+            recordDecision(lockedBySource, source);
             return new IdempotencyDecision(idemKey, Decision.LOCKED, null, SkippedReason.LOCKED);
         }
 
@@ -231,19 +241,39 @@ public class IdempotencyService {
      * @return список
      */
     public List<IdempotencyRecord> list(String status, int limit) {
+        return list(status, null, limit);
+    }
+
+    public List<IdempotencyRecord> list(String status, String skippedReason, int limit) {
         int lim = Math.min(Math.max(1, limit), 200);
         List<IdempotencyRecord> out = new ArrayList<>();
+        String normalizedStatus = normalizeFilter(status);
+        String normalizedSkippedReason = normalizeFilter(skippedReason);
+        boolean filterStatus = normalizedStatus != null;
+        boolean filterSkippedReason = normalizedSkippedReason != null;
 
-        String sql = (status == null || status.isBlank())
-                ? "SELECT idem_key, status, lock_until, updated_at, skipped_reason FROM ib_idempotency ORDER BY updated_at DESC LIMIT ?"
-                : "SELECT idem_key, status, lock_until, updated_at, skipped_reason FROM ib_idempotency WHERE status=? ORDER BY updated_at DESC LIMIT ?";
+        StringBuilder sql = new StringBuilder("SELECT idem_key, status, lock_until, updated_at, skipped_reason FROM ib_idempotency");
+        List<String> where = new ArrayList<>();
+        if (filterStatus) {
+            where.add("status=?");
+        }
+        if (filterSkippedReason) {
+            where.add("skipped_reason=?");
+        }
+        if (!where.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", where));
+        }
+        sql.append(" ORDER BY updated_at DESC LIMIT ?");
 
         try (Connection c = dataSource.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
+             PreparedStatement ps = c.prepareStatement(sql.toString())) {
 
             int idx = 1;
-            if (status != null && !status.isBlank()) {
-                ps.setString(idx++, status);
+            if (filterStatus) {
+                ps.setString(idx++, normalizedStatus);
+            }
+            if (filterSkippedReason) {
+                ps.setString(idx++, normalizedSkippedReason);
             }
             ps.setInt(idx, lim);
 
@@ -253,11 +283,11 @@ public class IdempotencyService {
                     String st = rs.getString(2);
                     Timestamp lock = rs.getTimestamp(3);
                     Timestamp upd = rs.getTimestamp(4);
-                    String skippedReason = rs.getString(5);
+                    String recSkippedReason = rs.getString(5);
                     out.add(new IdempotencyRecord(key, st,
                             lock == null ? null : lock.toInstant().toString(),
                             upd == null ? null : upd.toInstant().toString(),
-                            skippedReason));
+                            recSkippedReason));
                 }
             }
         } catch (Exception e) {
@@ -265,6 +295,14 @@ public class IdempotencyService {
         }
 
         return out;
+    }
+
+    private static String normalizeFilter(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**
@@ -302,6 +340,68 @@ public class IdempotencyService {
         return 0;
     }
 
+
+    public int purgeExpired(Instant updatedBefore, int limit, boolean dryRun) {
+        Instant bound = updatedBefore == null ? Instant.now() : updatedBefore;
+        int lim = Math.min(Math.max(1, limit), 500);
+        if (dryRun) {
+            return countExpired(bound, lim);
+        }
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM ib_idempotency WHERE idem_key IN (SELECT idem_key FROM ib_idempotency WHERE skipped_reason=? AND updated_at<? ORDER BY updated_at ASC LIMIT ?)") ) {
+            ps.setString(1, SkippedReason.EXPIRED.name());
+            ps.setTimestamp(2, Timestamp.from(bound));
+            ps.setInt(3, lim);
+            return ps.executeUpdate();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    public BatchUnlockResult unlockBatch(int limit, boolean dryRun, String actor, String reason) {
+        int lim = Math.min(Math.max(1, limit), 500);
+        List<String> keys = new ArrayList<>();
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT idem_key FROM ib_idempotency WHERE status=? AND lock_until<? ORDER BY lock_until ASC LIMIT ?")) {
+            ps.setString(1, Status.IN_PROGRESS.name());
+            ps.setTimestamp(2, Timestamp.from(Instant.now()));
+            ps.setInt(3, lim);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    keys.add(rs.getString(1));
+                }
+            }
+        } catch (Exception e) {
+            return new BatchUnlockResult(0, 0, dryRun);
+        }
+        if (dryRun) {
+            return new BatchUnlockResult(keys.size(), 0, true);
+        }
+        int unlocked = 0;
+        for (String k : keys) {
+            if (manualUnlock(k, actor, reason)) {
+                unlocked++;
+            }
+        }
+        return new BatchUnlockResult(keys.size(), unlocked, false);
+    }
+
+    private int countExpired(Instant updatedBefore, int limit) {
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT COUNT(1) FROM (SELECT idem_key FROM ib_idempotency WHERE skipped_reason=? AND updated_at<? ORDER BY updated_at ASC LIMIT ?) t")) {
+            ps.setString(1, SkippedReason.EXPIRED.name());
+            ps.setTimestamp(2, Timestamp.from(updatedBefore));
+            ps.setInt(3, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (Exception e) {
+            return 0;
+        }
+    }
     public boolean manualUnlock(String idemKey, String actor, String reason) {
         if (idemKey == null || idemKey.isBlank()) {
             return false;
@@ -521,6 +621,51 @@ public class IdempotencyService {
         return s == null ? "" : s;
     }
 
+
+    public List<SourceConflictShare> conflictSharePerSource(int limit) {
+        int lim = Math.min(Math.max(1, limit), 200);
+        List<SourceConflictShare> out = new ArrayList<>();
+        for (Map.Entry<String, LongAdder> e : decisionsBySource.entrySet()) {
+            String source = e.getKey();
+            long total = e.getValue().sum();
+            if (total <= 0) {
+                continue;
+            }
+            long dup = duplicateBySource.getOrDefault(source, new LongAdder()).sum();
+            long locked = lockedBySource.getOrDefault(source, new LongAdder()).sum();
+            double ratio = ((double) (dup + locked)) / (double) total;
+            out.add(new SourceConflictShare(source, total, dup, locked, ratio));
+        }
+        out.sort((a, b) -> Double.compare(b.conflictRatio(), a.conflictRatio()));
+        if (out.size() <= lim) {
+            return out;
+        }
+        return out.subList(0, lim);
+    }
+
+    private static String resolveSource(InboundEnvelope envelope) {
+        if (envelope == null || envelope.sourceMeta() == null || envelope.sourceMeta().isEmpty()) {
+            return "unknown";
+        }
+        Object source = envelope.sourceMeta().get("source");
+        if (source == null) {
+            source = envelope.sourceMeta().get("sourceSystem");
+        }
+        if (source == null) {
+            source = envelope.sourceMeta().get("system");
+        }
+        if (source == null) {
+            return "unknown";
+        }
+        String v = String.valueOf(source).trim();
+        return v.isEmpty() ? "unknown" : v;
+    }
+
+    private static void recordDecision(ConcurrentHashMap<String, LongAdder> target, String source) {
+        String s = (source == null || source.isBlank()) ? "unknown" : source.trim();
+        target.computeIfAbsent(s, k -> new LongAdder()).increment();
+    }
+
     private static String safeShort(String s, int maxLen) {
         if (s == null) {
             return null;
@@ -546,4 +691,21 @@ public class IdempotencyService {
             String skippedReason
     ) {
     }
+
+    public record BatchUnlockResult(
+            int selected,
+            int unlocked,
+            boolean dryRun
+    ) {
+    }
+
+    public record SourceConflictShare(
+            String source,
+            long totalDecisions,
+            long duplicate,
+            long locked,
+            double conflictRatio
+    ) {
+    }
+
 }

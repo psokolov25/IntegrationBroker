@@ -608,4 +608,28 @@ class AppointmentClientsTest {
         assertEquals(Boolean.TRUE, out.details().get("fallback"));
     }
 
+
+    @Test
+    void delegatedFallback_shouldStayDeterministicForSameInput() {
+        AppointmentClients clients = new AppointmentClients(null, new NoopCustomClient());
+
+        AppointmentModels.GetNearestAppointmentRequest req = new AppointmentModels.GetNearestAppointmentRequest(
+                List.of(new AppointmentModels.BookingKey("clientId", "C-100", Map.of())),
+                Map.of("branchId", "BR-1")
+        );
+
+        AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> first = clients.emiasAppointment().getNearestAppointment(req, Map.of());
+        AppointmentModels.AppointmentOutcome<AppointmentModels.Appointment> second = clients.emiasAppointment().getNearestAppointment(req, Map.of());
+
+        assertTrue(first.success());
+        assertTrue(second.success());
+        assertNotNull(first.result());
+        assertNotNull(second.result());
+        assertEquals(first.result().appointmentId(), second.result().appointmentId());
+        assertEquals(first.result().startAt(), second.result().startAt());
+        assertEquals(first.details().get("requestedProfile"), second.details().get("requestedProfile"));
+        assertEquals(first.details().get("executionProfile"), second.details().get("executionProfile"));
+        assertEquals(first.details().get("fallback"), second.details().get("fallback"));
+    }
+
 }

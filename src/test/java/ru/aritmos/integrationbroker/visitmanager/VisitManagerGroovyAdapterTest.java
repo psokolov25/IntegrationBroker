@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VisitManagerGroovyAdapterTest {
 
@@ -351,6 +352,72 @@ class VisitManagerGroovyAdapterTest {
         assertEquals("/servicepoint/branches/branch+1/servicePoints/sp%2F2/call?isAutoCallEnabled=true", client.lastPath);
     }
 
+
+    @Test
+    void createVisitRest_shouldIncludeExtendedAuditTrail() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerGroovyAdapter adapter = new VisitManagerGroovyAdapter(client);
+
+        Map<String, Object> result = adapter.createVisitRest(Map.of(
+                "branchId", "B-1",
+                "entryPointId", "EP-1",
+                "serviceIds", List.of("S-1", "S-2"),
+                "parameters", Map.of("segment", "VIP"),
+                "printTicket", true,
+                "segmentationRuleId", "rule-1"
+        ), Map.of("messageId", "m-audit", "correlationId", "c-audit", "idempotencyKey", "i-audit"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> audit = (Map<String, Object>) result.get("audit");
+        assertTrue(Boolean.TRUE.equals(result.get("success")));
+        assertEquals("createVisitWithParameters", audit.get("operation"));
+        assertEquals("B-1", audit.get("branchId"));
+        assertEquals("EP-1", audit.get("entryPointId"));
+        assertEquals(2, audit.get("serviceCount"));
+        assertEquals(Boolean.TRUE, audit.get("hasParameters"));
+        assertEquals("c-audit", audit.get("correlationId"));
+    }
+
+    @Test
+    void startAutoCallRest_shouldNormalize207Response() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        client.statusByPath.put("/servicepoint/branches/branch+1/service-points/sp%2F2/auto-call/start", 207);
+        VisitManagerGroovyAdapter adapter = new VisitManagerGroovyAdapter(client);
+
+        Map<String, Object> result = adapter.startAutoCallRest(Map.of(
+                "branchId", "branch 1",
+                "servicePointId", "sp/2"
+        ), Map.of("messageId", "m-norm", "correlationId", "c-norm", "idempotencyKey", "i-norm"));
+
+        assertEquals(true, result.get("success"));
+        assertEquals(207, result.get("httpStatus"));
+        assertEquals(200, result.get("normalizedHttpStatus"));
+        assertEquals("ALREADY_IN_TARGET_STATE", result.get("normalizedOutcome"));
+    }
+
+    @Test
+    void servicePointSidPolicy_shouldReuseCookieSidAndOverrideWhenExplicitSidProvided() {
+        StubVisitManagerClient client = new StubVisitManagerClient();
+        VisitManagerGroovyAdapter adapter = new VisitManagerGroovyAdapter(client);
+
+        Map<String, Object> sticky = adapter.exitServicePointModeRest(Map.of(
+                "branchId", "branch 1",
+                "headers", Map.of("Cookie", "theme=dark; sid=SID-STICKY")
+        ), Map.of("messageId", "m-sticky", "correlationId", "c-sticky", "idempotencyKey", "i-sticky"));
+
+        assertEquals(true, sticky.get("success"));
+        assertEquals("theme=dark; sid=SID-STICKY", client.lastHeaders.get("Cookie"));
+
+        Map<String, Object> override = adapter.exitServicePointModeRest(Map.of(
+                "branchId", "branch 1",
+                "sid", "SID-NEW",
+                "headers", Map.of("Cookie", "theme=dark; sid=SID-OLD")
+        ), Map.of("messageId", "m-override", "correlationId", "c-override", "idempotencyKey", "i-override"));
+
+        assertEquals(true, override.get("success"));
+        assertEquals("theme=dark; sid=SID-NEW", client.lastHeaders.get("Cookie"));
+    }
+
     static class StubVisitManagerClient extends VisitManagerClient {
         String lastMethod;
         String lastPath;
@@ -358,6 +425,7 @@ class VisitManagerGroovyAdapterTest {
         Map<String, String> lastHeaders;
         String lastCreateVisitBranchId;
         String lastCreateVisitEntryPointId;
+        Map<String, Integer> statusByPath = new java.util.HashMap<>();
 
         StubVisitManagerClient() {
             super(null, null, new ObjectMapper(), null);
@@ -398,7 +466,8 @@ class VisitManagerGroovyAdapterTest {
             this.lastPath = path;
             this.lastBody = body;
             this.lastHeaders = extraHeaders;
-            return CallResult.direct(200, null);
+            int status = statusByPath.getOrDefault(path, 200);
+            return CallResult.direct(status, null);
         }
     }
 }
