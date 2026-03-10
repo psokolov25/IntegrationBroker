@@ -30,9 +30,13 @@ import java.lang.annotation.Target;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 
 /**
  * Компоненты движка flow:
@@ -266,7 +270,6 @@ public final class FlowEngine {
 
         private final BeanContext beanContext;
         private final ObjectMapper objectMapper;
-        private final int cacheMaxSize;
 
         private final RuntimeConfigStore configStore;
         private final MessagingOutboxService messagingOutboxService;
@@ -274,7 +277,7 @@ public final class FlowEngine {
         private final IdentityService identityService;
 
         private final GroovyClassLoader classLoader;
-        private final ConcurrentHashMap<String, Class<? extends Script>> cache = new ConcurrentHashMap<>();
+        private final ScriptClassCache cache;
 
         public GroovyFlowEngine(BeanContext beanContext,
                                ObjectMapper objectMapper,
@@ -285,8 +288,6 @@ public final class FlowEngine {
                                @Value("${integrationbroker.groovy.cache-max-size:200}") int cacheMaxSize) {
             this.beanContext = beanContext;
             this.objectMapper = objectMapper;
-            this.cacheMaxSize = cacheMaxSize;
-
             this.configStore = configStore;
             this.messagingOutboxService = messagingOutboxService;
             this.restOutboxService = restOutboxService;
@@ -294,6 +295,7 @@ public final class FlowEngine {
 
             CompilerConfiguration cfg = new CompilerConfiguration();
             this.classLoader = new GroovyClassLoader(GroovyFlowEngine.class.getClassLoader(), cfg);
+            this.cache = cacheMaxSize > 0 ? new ScriptClassCache(cacheMaxSize) : null;
         }
 
         /**
@@ -373,20 +375,114 @@ public final class FlowEngine {
         }
 
         private Script newScript(String code) {
-            if (cache.size() > cacheMaxSize) {
-                // Простая эвристика: при переполнении очищаем кеш.
-                // В следующих итерациях будет реализована стратегия LRU.
-                cache.clear();
-                log.warn("Кеш Groovy-скриптов очищен из-за превышения лимита cache-max-size={}", cacheMaxSize);
+            if (cache == null) {
+                return newScriptInstance(compile(code));
             }
 
-            String key = sha256Hex(code);
-            Class<? extends Script> compiled = cache.computeIfAbsent(key, k -> compile(code));
+            Class<? extends Script> compiled = cache.getOrCompile(code, this::compile);
+            return newScriptInstance(compiled);
+        }
+
+        private Script newScriptInstance(Class<? extends Script> compiled) {
             try {
                 return compiled.getDeclaredConstructor().newInstance();
             } catch (Exception e) {
                 throw new IllegalStateException("Не удалось создать экземпляр Groovy-скрипта: " + e.getMessage(), e);
             }
+        }
+
+        static final class ScriptClassCache {
+            private final int maxSize;
+            private final LinkedHashMap<String, Class<? extends Script>> entries;
+            private final Map<String, CompletableFuture<Class<? extends Script>>> inFlight;
+
+            ScriptClassCache(int maxSize) {
+                if (maxSize <= 0) {
+                    throw new IllegalArgumentException("maxSize must be positive");
+                }
+                this.maxSize = maxSize;
+                this.entries = new LinkedHashMap<>(32, 0.75f, true);
+                this.inFlight = new HashMap<>();
+            }
+
+            Class<? extends Script> getOrCompile(String code,
+                                                 Function<String, Class<? extends Script>> compiler) {
+                String source = Objects.requireNonNull(code, "code");
+                Function<String, Class<? extends Script>> safeCompiler = Objects.requireNonNull(compiler, "compiler");
+                String key = sha256Hex(source);
+                CompletableFuture<Class<? extends Script>> pending;
+                boolean shouldCompile = false;
+                synchronized (this) {
+                    Class<? extends Script> existing = entries.get(key);
+                    if (existing != null) {
+                        return existing;
+                    }
+                    pending = inFlight.get(key);
+                    if (pending == null) {
+                        pending = new CompletableFuture<>();
+                        inFlight.put(key, pending);
+                        shouldCompile = true;
+                    }
+                }
+
+                if (shouldCompile) {
+                    return compileAndStore(source, key, safeCompiler, pending);
+                }
+
+                try {
+                    return pending.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Ожидание компиляции Groovy-flow было прервано", e);
+                } catch (ExecutionException e) {
+                    throw rethrowCompilationFailure(e.getCause() == null ? e : e.getCause());
+                }
+            }
+
+            private Class<? extends Script> compileAndStore(String code,
+                                                            String key,
+                                                            Function<String, Class<? extends Script>> compiler,
+                                                            CompletableFuture<Class<? extends Script>> pending) {
+                try {
+                    Class<? extends Script> compiled = compiler.apply(code);
+                    if (compiled == null) {
+                        throw new IllegalStateException("Компилятор Groovy вернул null-класс");
+                    }
+                    Class<? extends Script> toCache;
+                    synchronized (this) {
+                        Class<? extends Script> existing = entries.get(key);
+                        toCache = existing != null ? existing : compiled;
+                        if (existing == null) {
+                            entries.put(key, toCache);
+                            if (entries.size() > maxSize) {
+                                entries.remove(entries.keySet().iterator().next());
+                                log.debug("Сработало LRU-вытеснение для Groovy cache-max-size={}", maxSize);
+                            }
+                        }
+                    }
+                    pending.complete(toCache);
+                    synchronized (this) {
+                        inFlight.remove(key, pending);
+                    }
+                    return toCache;
+                } catch (Throwable t) {
+                    pending.completeExceptionally(t);
+                    synchronized (this) {
+                        inFlight.remove(key, pending);
+                    }
+                    throw rethrowCompilationFailure(t);
+                }
+            }
+        }
+
+        private static RuntimeException rethrowCompilationFailure(Throwable t) {
+            if (t instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (t instanceof Error error) {
+                throw error;
+            }
+            return new IllegalStateException("Ошибка компиляции Groovy-flow", t);
         }
 
         private Class<? extends Script> compile(String code) {
